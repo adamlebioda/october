@@ -37,29 +37,30 @@
     background-size: contain;
 }
 
-.oc-bg-logo {
-    background-image: url(../images/october-logo-transparent.svg);
+.oc-logo {
+    background-image: url(../images/october-logo.svg);
     background-position: 50% 50%;
     background-repeat: no-repeat;
-    background-size: 50% auto;
+    background-size: contain;
 }
 
+.layout.control-tabs.oc-logo-transparent:not(.has-tabs),
+.layout-cell.oc-logo-transparent,
+.flex-layout-column.oc-logo-transparent {
+    background-size: 50% auto;
+    background-repeat: no-repeat;
+    background-image: url(../images/october-logo.svg);
+    background-position: 50% 50%;
+    position: relative;
 
-//
-// Alerts
-//
-
-.sweet-alert {
-    text-align: left;
-
-    h4 {
-        margin: 10px 0 20px 0;
-        color: #2b3e50;
-        font-size: 18px;
-    }
-
-    p.text-muted {
-        margin-bottom: 20px;
-        color: #555555;
+    &:after {
+        content: '';
+        display: table-cell;
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: 100%;
+        background: rgba(249,249,249,0.7);
     }
 }

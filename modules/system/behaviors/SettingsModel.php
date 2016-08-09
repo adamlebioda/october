@@ -1,7 +1,7 @@
 <?php namespace System\Behaviors;
 
+use App;
 use Cache;
-use DbDongle;
 use System\Classes\ModelBehavior;
 use ApplicationException;
 
@@ -25,6 +25,9 @@ class SettingsModel extends ModelBehavior
     protected $fieldConfig;
     protected $fieldValues = [];
 
+    /**
+     * @var array Internal cache of model objects.
+     */
     private static $instances = [];
 
     /**
@@ -39,9 +42,9 @@ class SettingsModel extends ModelBehavior
     {
         parent::__construct($model);
 
-        $this->model->table = 'system_settings';
-        $this->model->jsonable = ['value'];
-        $this->model->guarded = [];
+        $this->model->setTable('system_settings');
+        $this->model->jsonable(['value']);
+        $this->model->guard([]);
         $this->model->timestamps = false;
 
         // Option A: (@todo Determine which is faster by benchmark)
@@ -63,7 +66,6 @@ class SettingsModel extends ModelBehavior
         /*
          * Parse the config
          */
-        $this->fieldConfig = $this->makeConfig($this->model->settingsFields);
         $this->recordCode = $this->model->settingsCode;
     }
 
@@ -101,7 +103,7 @@ class SettingsModel extends ModelBehavior
      */
     public function isConfigured()
     {
-        return DbDongle::hasDatabase() && $this->getSettingsRecord() !== null;
+        return App::hasDatabase() && $this->getSettingsRecord() !== null;
     }
 
     /**
@@ -236,7 +238,11 @@ class SettingsModel extends ModelBehavior
      */
     public function getFieldConfig()
     {
-        return $this->fieldConfig;
+        if ($this->fieldConfig !== null) {
+            return $this->fieldConfig;
+        }
+
+        return $this->fieldConfig = $this->makeConfig($this->model->settingsFields);
     }
 
     /**
@@ -245,5 +251,14 @@ class SettingsModel extends ModelBehavior
     protected function getCacheKey()
     {
         return 'system::settings.'.$this->recordCode;
+    }
+
+    /**
+     * Clears the internal memory cache of model instances.
+     * @return void
+     */
+    public static function clearInternalCache()
+    {
+        static::$instances = [];
     }
 }

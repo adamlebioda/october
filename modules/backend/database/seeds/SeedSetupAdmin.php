@@ -27,7 +27,7 @@ class SeedSetupAdmin extends Seeder
     {
         $group = UserGroup::create([
             'name' => 'Owners',
-            'code' => 'owners',
+            'code' => UserGroup::DEFAULT_CODE,
             'description' => 'Default group for website owners.',
             'is_new_user_default' => false
         ]);
@@ -39,7 +39,8 @@ class SeedSetupAdmin extends Seeder
             'password_confirmation' => static::$password,
             'first_name'            => static::$firstName,
             'last_name'             => static::$lastName,
-            'permissions'           => ['superuser' => 1],
+            'permissions'           => [],
+            'is_superuser'          => true,
             'is_activated'          => true
         ]);
 

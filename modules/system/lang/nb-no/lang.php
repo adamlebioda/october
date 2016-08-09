@@ -6,6 +6,8 @@ return [
         'tagline' => 'Getting back to basics'
     ],
     'locale' => [
+        'cs' => 'Czech',
+        'da' => 'Danish',
         'en' => 'Engelsk',
         'de' => 'Tysk',
         'es' => 'Spansk',
@@ -21,11 +23,12 @@ return [
         'pt-br' => 'Brasiliansk Portugisk',
         'ro' => 'Rumensk',
         'ru' => 'Russisk',
-        'se' => 'Svensk',
+        'sv' => 'Svensk',
         'sk' => 'Slovak (Slovakia)',
         'tr' => 'Tyrkisk',
         'nb-no' => 'Norsk (Bokmål)',
-        'zh-cn' => 'Kinesisk (Kina)'
+        'zh-cn' => 'Kinesisk (Kina)',
+        'zh-tw' => 'Chinese (Taiwan)',
     ],
     'directory' => [
         'create_fail' => 'Kan ikke opprette mappen: :name'
@@ -131,7 +134,6 @@ return [
         'sender_name' => 'Avsendernavn',
         'sender_email' => 'Avsenderens e-postadresse',
         'php_mail' => 'PHP mail',
-        'sendmail' => 'Sendmail',
         'smtp' => 'SMTP',
         'smtp_address' => 'SMTP-adresse',
         'smtp_authorization' => 'SMTP-autentisering kreves',

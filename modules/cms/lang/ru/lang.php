@@ -12,6 +12,12 @@ return [
         'delete_success' => 'Шаблоны были успешно удалены: :count.',
         'file_name_required' => 'Пожалуйста, укажите имя файла шаблона.'
     ],
+    'dashboard' => [
+        'active_theme' => [
+            'online' => 'Онлайн',
+            'maintenance' => 'в разработке',
+        ]
+    ],
     'theme' => [
       'not_found_name' => "Тема ':name' не найдена.",
         'active' => [
@@ -231,7 +237,11 @@ return [
         'manage_pages' => 'Управление страницами',
         'manage_layouts' => 'Управление шаблонами',
         'manage_partials' => 'Управление фрагментами',
-        'manage_themes' => 'Управление темами'
+        'manage_themes' => 'Управление темами',
+        'manage_media' => 'Управление медиафайлами'
+    ],
+    'mediafinder' => [
+        'default_prompt' => 'Кликните на %s кнопку, чтобы найти медиафайл'
     ],
     'media' => [
         'invalid_path' => "Указан недопустимый путь к файлу: ':path'.",
@@ -261,8 +271,8 @@ return [
         'multiple_selected' => 'Выбрано несколько объектов.',
         'uploading_file_num' => 'Загрузка файлов: :number',
         'uploading_complete' => 'Загрузка файлов завершена!',
+        'uploading_error' => 'Ошибка загрузки',
         'order_by' => 'Сортировать по',
-        'search' => 'Поиск',
         'folder' => 'Папка',
         'no_files_found' => 'Ни один из файлов не удовлетворяет вашему запросу.',
         'delete_empty' => 'Пожалуйста, выберите объекты для удаления.',

@@ -18,9 +18,9 @@ use Twig_Environment;
 use Cms\Twig\Loader as TwigLoader;
 use Cms\Twig\DebugExtension;
 use Cms\Twig\Extension as CmsTwigExtension;
-use Cms\Classes\FileHelper as CmsFileHelper;
-use Cms\Models\MaintenanceSettings;
+use Cms\Models\MaintenanceSetting;
 use System\Models\RequestLog;
+use System\Helpers\View as ViewHelper;
 use System\Classes\ErrorHandler;
 use System\Classes\CombineAssets;
 use System\Twig\Extension as SystemTwigExtension;
@@ -28,7 +28,7 @@ use October\Rain\Exception\AjaxException;
 use October\Rain\Exception\SystemException;
 use October\Rain\Exception\ValidationException;
 use October\Rain\Exception\ApplicationException;
-use October\Rain\Parse\Template as TextParser;
+use October\Rain\Parse\Bracket as TextParser;
 use Illuminate\Http\RedirectResponse;
 
 /**
@@ -104,14 +104,14 @@ class Controller
     protected static $instance = null;
 
     /**
-     * @var Cms\Classes\ComponentBase Object of the active component, used internally.
+     * @var \Cms\Classes\ComponentBase Object of the active component, used internally.
      */
-    protected $componentContext;
+    protected $componentContext = null;
 
     /**
      * @var array Component partial stack, used internally.
      */
-    protected $partialComponentStack = [];
+    protected $partialStack = [];
 
     /**
      * Creates the controller.
@@ -127,6 +127,7 @@ class Controller
 
         $this->assetPath = Config::get('cms.themesPath', '/themes').'/'.$this->theme->getDirName();
         $this->router = new Router($this->theme);
+        $this->partialStack = new PartialStack;
         $this->initTwigEnvironment();
 
         self::$instance = $this;
@@ -164,11 +165,15 @@ class Controller
          * Maintenance mode
          */
         if (
-            MaintenanceSettings::isConfigured() &&
-            MaintenanceSettings::get('is_enabled', false) &&
+            MaintenanceSetting::isConfigured() &&
+            MaintenanceSetting::get('is_enabled', false) &&
             !BackendAuth::getUser()
         ) {
-            $page = Page::loadCached($this->theme, MaintenanceSettings::get('cms_page'));
+            if (!Request::ajax()) {
+                $this->setStatusCode(503);
+            }
+
+            $page = Page::loadCached($this->theme, MaintenanceSetting::get('cms_page'));
         }
 
         /*
@@ -189,8 +194,10 @@ class Controller
         /*
          * If the page was not found, render the 404 page - either provided by the theme or the built-in one.
          */
-        if (!$page) {
-            $this->setStatusCode(404);
+        if (!$page || $url === '404') {
+            if (!Request::ajax()) {
+                $this->setStatusCode(404);
+            }
 
             // Log the 404 request
             if (!App::runningUnitTests()) {
@@ -366,7 +373,7 @@ class Controller
              */
             CmsException::mask($this->page, 400);
             $this->loader->setObject($this->page);
-            $template = $this->twig->loadTemplate($this->page->getFullPath());
+            $template = $this->twig->loadTemplate($this->page->getFilePath());
             $this->pageContents = $template->render($this->vars);
             CmsException::unmask();
         }
@@ -376,7 +383,7 @@ class Controller
          */
         CmsException::mask($this->layout, 400);
         $this->loader->setObject($this->layout);
-        $template = $this->twig->loadTemplate($this->layout->getFullPath());
+        $template = $this->twig->loadTemplate($this->layout->getFilePath());
         $result = $template->render($this->vars);
         CmsException::unmask();
 
@@ -624,17 +631,6 @@ class Controller
                 }
 
                 /*
-                 * If the handler returned an array, we should add it to output for rendering.
-                 * If it is a string, add it to the array with the key "result".
-                 */
-                if (is_array($result)) {
-                    $responseContents = array_merge($responseContents, $result);
-                }
-                elseif (is_string($result)) {
-                    $responseContents['result'] = $result;
-                }
-
-                /*
                  * Render partials and return the response as array that will be converted to JSON automatically.
                  */
                 foreach ($partialList as $partial) {
@@ -642,11 +638,27 @@ class Controller
                 }
 
                 /*
-                 * If the handler returned a redirect, process it so framework.js knows to redirect
-                 * the browser and not the request!
+                 * If the handler returned a redirect, process the URL and dispose of it so
+                 * framework.js knows to redirect the browser and not the request!
                  */
                 if ($result instanceof RedirectResponse) {
                     $responseContents['X_OCTOBER_REDIRECT'] = $result->getTargetUrl();
+                    $result = null;
+                }
+
+                /*
+                 * If the handler returned an array, we should add it to output for rendering.
+                 * If it is a string, add it to the array with the key "result".
+                 * If an object, pass it to Laravel as a response object.
+                 */
+                if (is_array($result)) {
+                    $responseContents = array_merge($responseContents, $result);
+                }
+                elseif (is_string($result)) {
+                    $responseContents['result'] = $result;
+                }
+                elseif (is_object($result)) {
+                    return $result;
                 }
 
                 return Response::make($responseContents, $this->statusCode);
@@ -670,6 +682,7 @@ class Controller
     /**
      * Tries to find and run an AJAX handler in the page, layout, components and plugins.
      * The method stops as soon as the handler is found.
+     * @param string $handler name of the ajax handler
      * @return boolean Returns true if the handler was found. Returns false otherwise.
      */
     protected function runAjaxHandler($handler)
@@ -743,7 +756,7 @@ class Controller
     /**
      * Renders a requested partial.
      * The framework uses this method internally.
-     * @param string $partial The view to load.
+     * @param string $name The view to load.
      * @param array $parameters Parameter variables to pass to the view.
      * @param bool $throwException Throw an exception if the partial is not found.
      * @return mixed Partial contents or false if not throwing an exception.
@@ -751,6 +764,7 @@ class Controller
     public function renderPartial($name, $parameters = [], $throwException = true)
     {
         $vars = $this->vars;
+        $this->vars = array_merge($this->vars, $parameters);
 
         /*
          * Alias @ symbol for ::
@@ -847,6 +861,8 @@ class Controller
          */
 
         if ($partial instanceof Partial) {
+            $this->partialStack->stackPartial();
+
             $manager = ComponentManager::instance();
 
             foreach ($partial->settings['components'] as $component => $properties) {
@@ -868,10 +884,7 @@ class Controller
                 $componentObj->alias = $alias;
                 $parameters[$alias] = $partial->components[$alias] = $componentObj;
 
-                array_push($this->partialComponentStack, [
-                    'name' => $alias,
-                    'obj' => $componentObj
-                ]);
+                $this->partialStack->addComponent($alias, $componentObj);
 
                 $this->setComponentPropertiesFromParams($componentObj, $parameters);
                 $componentObj->init();
@@ -890,22 +903,19 @@ class Controller
         }
 
         /*
-         * Render the parital
+         * Render the partial
          */
         CmsException::mask($partial, 400);
         $this->loader->setObject($partial);
-        $template = $this->twig->loadTemplate($partial->getFullPath());
+        $template = $this->twig->loadTemplate($partial->getFilePath());
         $result = $template->render(array_merge($this->vars, $parameters));
         CmsException::unmask();
 
         if ($partial instanceof Partial) {
-            if ($this->partialComponentStack) {
-                array_pop($this->partialComponentStack);
-            }
+            $this->partialStack->unstackPartial();
         }
 
         $this->vars = $vars;
-        $this->componentContext = null;
         return $result;
     }
 
@@ -937,6 +947,14 @@ class Controller
         $fileContent = $content->parsedMarkup;
 
         /*
+         * Inject global view variables
+         */
+        $globalVars = ViewHelper::getGlobalVars();
+        if (!empty($globalVars)) {
+            $parameters = (array) $parameters + $globalVars;
+        }
+
+        /*
          * Parse basic template variables
          */
         if (!empty($parameters)) {
@@ -958,6 +976,8 @@ class Controller
 
     /**
      * Renders a component's default content.
+     * @param $name
+     * @param array $parameters
      * @return string Returns the component default contents.
      */
     public function renderComponent($name, $parameters = [])
@@ -980,6 +1000,7 @@ class Controller
     /**
      * Sets the status code for the current web response.
      * @param int $code Status code
+     * @return self
      */
     public function setStatusCode($code)
     {
@@ -1021,7 +1042,7 @@ class Controller
 
     /**
      * Returns the Twig loader.
-     * @return Cms\Twig\Loader
+     * @return \Cms\Twig\Loader
      */
     public function getLoader()
     {
@@ -1089,6 +1110,9 @@ class Controller
          */
         if (is_bool($parameters)) {
             $routePersistence = $parameters;
+        }
+
+        if (!is_array($parameters)) {
             $parameters = [];
         }
 
@@ -1117,6 +1141,9 @@ class Controller
 
     /**
      * Looks up the current page URL with supplied parameters and route persistence.
+     * @param array $parameters
+     * @param bool $routePersistence
+     * @return null|string
      */
     public function currentPageUrl($parameters = [], $routePersistence = true)
     {
@@ -1163,8 +1190,8 @@ class Controller
 
     /**
      * Returns a routing parameter.
-     * @param string Routing parameter name.
-     * @param string Default to use if none is found.
+     * @param string $name Routing parameter name.
+     * @param string $default Default to use if none is found.
      * @return string
      */
     public function param($name, $default = null)
@@ -1212,6 +1239,7 @@ class Controller
 
     /**
      * Searches the layout and page components by an alias
+     * @param $name
      * @return ComponentBase The component object, if found
      */
     public function findComponentByName($name)
@@ -1224,10 +1252,9 @@ class Controller
             return $this->layout->components[$name];
         }
 
-        foreach ($this->partialComponentStack as $componentInfo) {
-            if ($componentInfo['name'] == $name) {
-                return $componentInfo['obj'];
-            }
+        $partialComponent = $this->partialStack->getComponent($name);
+        if ($partialComponent !== null) {
+            return $partialComponent;
         }
 
         return null;
@@ -1235,6 +1262,7 @@ class Controller
 
     /**
      * Searches the layout and page components by an AJAX handler
+     * @param string $handler
      * @return ComponentBase The component object, if found
      */
     public function findComponentByHandler($handler)
@@ -1256,28 +1284,19 @@ class Controller
 
     /**
      * Searches the layout and page components by a partial file
+     * @param string $partial
      * @return ComponentBase The component object, if found
      */
     public function findComponentByPartial($partial)
     {
         foreach ($this->page->components as $component) {
-            $fileName = ComponentPartial::getFilePath($component, $partial);
-            if (!strlen(File::extension($fileName))) {
-                $fileName .= '.htm';
-            }
-
-            if (File::isFile($fileName)) {
+            if (ComponentPartial::check($component, $partial)) {
                 return $component;
             }
         }
 
         foreach ($this->layout->components as $component) {
-            $fileName = ComponentPartial::getFilePath($component, $partial);
-            if (!strlen(File::extension($fileName))) {
-                $fileName .= '.htm';
-            }
-
-            if (File::isFile($fileName)) {
+            if (ComponentPartial::check($component, $partial)) {
                 return $component;
             }
         }
@@ -1290,7 +1309,7 @@ class Controller
      * @param ComponentBase $component
      * @return void
      */
-    public function setComponentContext(ComponentBase $component)
+    public function setComponentContext(ComponentBase $component = null)
     {
         $this->componentContext = $component;
     }
@@ -1300,7 +1319,6 @@ class Controller
      * The property values should be defined as {{ param }}.
      * @param ComponentBase $component The component object.
      * @param array $parameters Specifies the partial parameters.
-     * @return Returns updated properties.
      */
     protected function setComponentPropertiesFromParams($component, $parameters = [])
     {
@@ -1308,6 +1326,10 @@ class Controller
         $routerParameters = $this->router->getParameters();
 
         foreach ($properties as $propertyName => $propertyValue) {
+            if (is_array($propertyValue)) {
+                continue;
+            }
+
             $matches = [];
             if (preg_match('/^\{\{([^\}]+)\}\}$/', $propertyValue, $matches)) {
                 $paramName = trim($matches[1]);

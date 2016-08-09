@@ -1,5 +1,6 @@
 <?php namespace System\Console;
 
+use Lang;
 use File;
 use Config;
 use Illuminate\Console\Command;
@@ -13,6 +14,12 @@ use System\Classes\CombineAssets;
  * Supported commands:
  *
  *   - purge thumbs: Deletes all thumbnail files in the uploads directory.
+ *   - git pull: Perform "git pull" on all plugins and themes.
+ *   - compile assets: Compile registered Language, LESS and JS files.
+ *   - compile js: Compile registered JS files only.
+ *   - compile less: Compile registered LESS files only.
+ *   - compile lang: Compile registered Language files only.
+ *
  */
 class OctoberUtil extends Command
 {
@@ -117,6 +124,65 @@ class OctoberUtil extends Command
                 $this->comment(sprintf(' -> %s', $publicDest));
             }
         }
+
+        if ($type === null) {
+            $this->utilCompileLang();
+        }
+    }
+
+    protected function utilCompileLang()
+    {
+        if (!$locales = Lang::get('system::lang.locale')) {
+            return;
+        }
+
+        $this->comment('Compiling client-side language files...');
+
+        $locales = array_keys($locales);
+        $stub = base_path() . '/modules/system/assets/js/lang/lang.stub';
+
+        foreach ($locales as $locale) {
+
+            /*
+             * Generate messages
+             */
+            $fallbackPath = base_path() . '/modules/system/lang/en/client.php';
+            $srcPath = base_path() . '/modules/system/lang/'.$locale.'/client.php';
+
+            $messages = require $fallbackPath;
+            if (File::isFile($srcPath) && $fallbackPath != $srcPath) {
+                $messages = array_replace_recursive($messages, require $srcPath);
+            }
+
+            /*
+             * Compile from stub and save file
+             */
+            $destPath = base_path() . '/modules/system/assets/js/lang/lang.'.$locale.'.js';
+
+            $contents = str_replace(
+                ['{{locale}}', '{{messages}}'],
+                [$locale, json_encode($messages)],
+                File::get($stub)
+            );
+
+            /*
+             * Include the moment localization data
+             */
+            $momentPath = base_path() . '/modules/system/assets/ui/vendor/moment/locale/'.$locale.'.js';
+            if (File::exists($momentPath)) {
+                $contents .= PHP_EOL.PHP_EOL.File::get($momentPath).PHP_EOL;
+            }
+
+            File::put($destPath, $contents);
+
+            /*
+             * Output notes
+             */
+            $publicDest = File::localToPublic(realpath(dirname($destPath))) . '/' . basename($destPath);
+
+            $this->comment($locale.'/'.basename($srcPath));
+            $this->comment(sprintf(' -> %s', $publicDest));
+        }
     }
 
     protected function utilPurgeThumbs()
@@ -126,7 +192,7 @@ class OctoberUtil extends Command
         }
 
         $totalCount = 0;
-        $uploadsPath = Config::get('filesystems.disks.local.root', storage_path().'/app');
+        $uploadsPath = Config::get('filesystems.disks.local.root', storage_path('app'));
         $uploadsPath .= '/uploads';
 
         /*
@@ -176,4 +242,29 @@ class OctoberUtil extends Command
 
         // @todo
     }
+
+    /**
+     * This command requires the git binary to be installed.
+     */
+    protected function utilGitPull()
+    {
+        foreach (File::directories(plugins_path()) as $authorDir) {
+            foreach (File::directories($authorDir) as $pluginDir) {
+                if (!File::isDirectory($pluginDir.'/.git')) continue;
+                $exec = 'cd ' . $pluginDir . ' && ';
+                $exec .= 'git pull 2>&1';
+                echo 'Updating plugin: '. basename(dirname($pluginDir)) .'.'. basename($pluginDir) . PHP_EOL;
+                echo shell_exec($exec);
+            }
+        }
+
+        foreach (File::directories(themes_path()) as $themeDir) {
+            if (!File::isDirectory($themeDir.'/.git')) continue;
+            $exec = 'cd ' . $themeDir . ' && ';
+            $exec .= 'git pull 2>&1';
+            echo 'Updating theme: '. basename($themeDir) . PHP_EOL;
+            echo shell_exec($exec);
+        }
+    }
+
 }

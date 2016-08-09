@@ -6,6 +6,8 @@ return [
         'tagline' => 'Dapati kembali yang mendasar'
     ],
     'locale' => [
+        'cs' => 'Czech',
+        'da' => 'Danish',
         'en' => 'Inggris',
         'de' => 'Jerman',
         'es' => 'Spanyol',
@@ -21,7 +23,7 @@ return [
         'pt-br' => 'Portugis (Brazil)',
         'ro' => 'Romania',
         'ru' => 'Rusia',
-        'se' => 'Swedia',
+        'sv' => 'Swedia',
         'sk' => 'Slowakia (Slovakia)',
         'tr' => 'Turki',
         'nb-no' => 'Norwegian (Bokmål)'
@@ -109,7 +111,6 @@ return [
         'sender_name' => 'Nama Pengirim',
         'sender_email' => 'Surel Pengirim',
         'php_mail' => 'PHP mail',
-        'sendmail' => 'Sendmail',
         'smtp' => 'SMTP',
         'smtp_address' => 'Alamat SMTP',
         'smtp_authorization' => 'Otorisasi SMTP diperlukan',

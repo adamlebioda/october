@@ -1,13 +1,14 @@
 <?php namespace Cms\Classes;
 
-use Request;
-use ApplicationException;
-use SystemException;
-use Config;
-use Storage;
+use Str;
 use Lang;
 use Cache;
-use Str;
+use Config;
+use Storage;
+use Request;
+use October\Rain\Filesystem\Definitions as FileDefinitions;
+use ApplicationException;
+use SystemException;
 
 /**
  * Provides abstraction level for the Media Library operations.
@@ -41,17 +42,14 @@ class MediaLibrary
     protected $storageDisk;
 
     /**
-     * @var array Contains a default list of files and directories to ignore.
-     * The list can be customized with cms.storage.media.ignore configuration option.
-     */
-    protected $defaultIgnoreNames = ['.svn', '.git', '.DS_Store'];
-
-    /**
      * @var array Contains a list of files and directories to ignore.
      * The list can be customized with cms.storage.media.ignore configuration option.
      */
     protected $ignoreNames;
 
+    /**
+     * @var int Cache for the storage folder name length.
+     */
     protected $storageFolderNameLength;
 
     /**
@@ -62,11 +60,11 @@ class MediaLibrary
         $this->storageFolder = self::validatePath(Config::get('cms.storage.media.folder', 'media'), true);
         $this->storagePath = rtrim(Config::get('cms.storage.media.path', '/storage/app/media'), '/');
 
-        if (!preg_match("/(\/\/|http|https)/", $this->storagePath)) {
+        if (!starts_with($this->storagePath, ['//', 'http://', 'https://'])) {
             $this->storagePath = Request::getBasePath() . $this->storagePath;
         }
 
-        $this->ignoreNames = Config::get('cms.storage.media.ignore', $this->defaultIgnoreNames);
+        $this->ignoreNames = Config::get('cms.storage.media.ignore', FileDefinitions::get('ignoreFiles'));
 
         $this->storageFolderNameLength = strlen($this->storageFolder);
     }
@@ -90,7 +88,7 @@ class MediaLibrary
          */
 
         $cached = Cache::get('cms-media-library-contents', false);
-        $cached = $cached ? @unserialize($cached) : [];
+        $cached = $cached ? @unserialize(@base64_decode($cached)) : [];
 
         if (!is_array($cached)) {
             $cached = [];
@@ -103,7 +101,11 @@ class MediaLibrary
             $folderContents = $this->scanFolderContents($fullFolderPath);
 
             $cached[$fullFolderPath] = $folderContents;
-            Cache::put(self::CACHE_KEY, serialize($cached), Config::get('cms.storage.media.ttl', 10));
+            Cache::put(
+                self::CACHE_KEY,
+                base64_encode(serialize($cached)),
+                Config::get('cms.storage.media.ttl', 10)
+            );
         }
 
         /*
@@ -125,9 +127,9 @@ class MediaLibrary
     /**
      * Finds files in the Library.
      * @param string $searchTerm Specifies the search term.
-     * @param string $sortBy Determines the sorting preference. 
+     * @param string $sortBy Determines the sorting preference.
      * Supported values are 'title', 'size', 'lastModified' (see SORT_BY_XXX class constants).
-     * @param string $filter Determines the document type filtering preference. 
+     * @param string $filter Determines the document type filtering preference.
      * Supported values are 'image', 'video', 'audio', 'document' (see FILE_TYPE_XXX constants of MediaLibraryItem class).
      * @return array Returns an array of MediaLibraryItem objects.
      */
@@ -218,7 +220,7 @@ class MediaLibrary
 
     /**
      * Returns a list of all directories in the Library, optionally excluding some of them.
-     * @param array $exclude A list of folders to exclude from the result list/
+     * @param array $exclude A list of folders to exclude from the result list.
      * The folder paths should be specified relative to the Library root.
      * @return array
      */
@@ -227,19 +229,26 @@ class MediaLibrary
         $fullPath = $this->getMediaPath('/');
 
         $folders = $this->getStorageDisk()->allDirectories($fullPath);
+
         $folders = array_unique($folders, SORT_LOCALE_STRING);
 
         $result = [];
 
         foreach ($folders as $folder) {
             $folder = $this->getMediaRelativePath($folder);
-            if (!strlen($folder))
+            if (!strlen($folder)) {
                 $folder = '/';
+            }
 
-            if (Str::startsWith($folder, $exclude))
+            if (Str::startsWith($folder, $exclude)) {
                 continue;
+            }
 
             $result[] = $folder;
+        }
+
+        if (!in_array('/', $result)) {
+            array_unshift($result, '/');
         }
 
         return $result;
@@ -335,10 +344,34 @@ class MediaLibrary
      */
     public function moveFolder($originalPath, $newPath)
     {
-        if (!$this->copyFolder($originalPath, $newPath))
-            return false;
+        if (Str::lower($originalPath) !== Str::lower($newPath)) {
+            // If there is no risk that the directory was renamed
+            // by just changing the letter case in the name - 
+            // copy the directory to the destination path and delete
+            // the source directory.
 
-        $this->deleteFolder($originalPath);
+            if (!$this->copyFolder($originalPath, $newPath)) {
+                return false;
+            }
+
+            $this->deleteFolder($originalPath);
+        } else {
+            // If there's a risk that the directory name was updated
+            // by changing the letter case - swap source and destination
+            // using a temporary directory with random name.
+
+            $tempraryDirPath = $this->generateRandomTmpFolderName(dirname($originalPath));
+
+            if (!$this->copyFolder($originalPath, $tempraryDirPath)) {
+                $this->deleteFolder($tempraryDirPath);
+
+                return false;
+            }
+
+            $this->deleteFolder($originalPath);
+
+            return $this->moveFolder($tempraryDirPath, $newPath);
+        }
 
         return true;
     }
@@ -381,14 +414,30 @@ class MediaLibrary
         $path = str_replace('\\', '/', $path);
         $path = '/'.trim($path, '/');
 
-        if ($normalizeOnly)
+        if ($normalizeOnly) {
             return $path;
+        }
 
-        if (strpos($path, '..') !== false)
-            throw new ApplicationException(Lang::get('cms::lang.media.invalid_path', ['path'=>$path]));
+        $regexDirectorySeparator = preg_quote('/', '#');
+        $regexDot = preg_quote('.', '#');
+        $regex = [
+            // Checks for parent or current directory reference at beginning of path
+            '(^'.$regexDot.'+?'.$regexDirectorySeparator.')',
 
-        if (strpos($path, './') !== false || strpos($path, '//') !== false)
-            throw new ApplicationException(Lang::get('cms::lang.media.invalid_path', ['path'=>$path]));
+            // Check for parent or current directory reference in middle of path
+            '('.$regexDirectorySeparator.$regexDot.'+?'.$regexDirectorySeparator.')',
+
+            // Check for parent or current directory reference at end of path
+            '('.$regexDirectorySeparator.$regexDot.'+?$)',
+        ];
+
+        /*
+         * Combine everything to one regex
+         */
+        $regex = '#'.implode('|', $regex).'#';
+        if (preg_match($regex, $path) !== 0 || strpos($path, '//') !== false) {
+            throw new ApplicationException(Lang::get('cms::lang.media.invalid_path', compact('path')));
+        }
 
         return $path;
     }
@@ -443,7 +492,7 @@ class MediaLibrary
     /**
      * Determines if the path should be visible (not ignored).
      * @param string $path Specifies a path to check.
-     * return boolean Returns TRUE if the path is visible.
+     * @return boolean Returns TRUE if the path is visible.
      */
     protected function isVisible($path)
     {
@@ -453,7 +502,7 @@ class MediaLibrary
     /**
      * Initializes a library item from a path and item type.
      * @param string $path Specifies the item path relative to the storage disk root.
-     * @param string $type Specifies the item type.
+     * @param string $itemType Specifies the item type.
      * @return mixed Returns the MediaLibraryItem object or NULL if the item is not visible.
      */
     protected function initLibraryItem($path, $itemType)
@@ -467,8 +516,9 @@ class MediaLibrary
          * S3 doesn't allow getting the last modified timestamp for folders,
          * so this feature is disabled - folders timestamp is always NULL.
          */
-        $lastModified = $itemType == MediaLibraryItem::TYPE_FILE ? 
-            $this->getStorageDisk()->lastModified($path) : null;
+        $lastModified = $itemType == MediaLibraryItem::TYPE_FILE
+            ? $this->getStorageDisk()->lastModified($path)
+            : null;
 
         /*
          * The folder size (number of items) doesn't respect filters. That
@@ -476,10 +526,12 @@ class MediaLibrary
          * zero items for a folder that contains files not visible with a
          * currently applied filter. -ab
          */
-        $size = $itemType == MediaLibraryItem::TYPE_FILE ? 
-            $this->getStorageDisk()->size($path) : $this->getFolderItemCount($path);
+        $size = $itemType == MediaLibraryItem::TYPE_FILE
+            ? $this->getStorageDisk()->size($path)
+            : $this->getFolderItemCount($path);
 
         $publicUrl = $this->storagePath.$relativePath;
+
         return new MediaLibraryItem($relativePath, $size, $lastModified, $itemType, $publicUrl);
     }
 
@@ -492,12 +544,14 @@ class MediaLibrary
     {
         $folderItems = array_merge(
             $this->getStorageDisk()->files($path),
-            $this->getStorageDisk()->directories($path));
+            $this->getStorageDisk()->directories($path)
+        );
 
         $size = 0;
         foreach ($folderItems as $folderItem) {
-            if ($this->isVisible($folderItem))
+            if ($this->isVisible($folderItem)) {
                 $size++;
+            }
         }
 
         return $size;
@@ -533,7 +587,7 @@ class MediaLibrary
     /**
      * Sorts the item list by title, size or last modified date.
      * @param array $itemList Specifies the item list to sort.
-     * @param string $sortBy Determines the sorting preference. 
+     * @param string $sortBy Determines the sorting preference.
      * Supported values are 'title', 'size', 'lastModified' (see SORT_BY_XXX class constants).
      */
     protected function sortItemList(&$itemList, $sortBy)
@@ -543,14 +597,14 @@ class MediaLibrary
 
         usort($itemList, function($a, $b) use ($sortBy) {
             switch ($sortBy) {
-                case self::SORT_BY_TITLE : return strcasecmp($a->path, $b->path);
-                case self::SORT_BY_SIZE : 
+                case self::SORT_BY_TITLE: return strcasecmp($a->path, $b->path);
+                case self::SORT_BY_SIZE:
                     if ($a->size > $b->size)
                         return -1;
 
                     return $a->size < $b->size ? 1 : 0;
                 break;
-                case self::SORT_BY_MODIFIED :
+                case self::SORT_BY_MODIFIED:
                     if ($a->lastModified > $b->lastModified)
                         return -1;
 
@@ -563,7 +617,7 @@ class MediaLibrary
     /**
      * Filters item list by file type.
      * @param array $itemList Specifies the item list to sort.
-     * @param string $filter Determines the document type filtering preference. 
+     * @param string $filter Determines the document type filtering preference.
      * Supported values are 'image', 'video', 'audio', 'document' (see FILE_TYPE_XXX constants of MediaLibraryItem class).
      */
     protected function filterItemList(&$itemList, $filter)
@@ -582,7 +636,7 @@ class MediaLibrary
 
     /**
      * Initializes and returns the Media Library disk.
-     * This method should always be used instead of trying to access the 
+     * This method should always be used instead of trying to access the
      * $storageDisk property directly as initializing the disc requires
      * communicating with the remote storage.
      * @return mixed Returns the storage disk object.
@@ -593,7 +647,8 @@ class MediaLibrary
             return $this->storageDisk;
 
         return $this->storageDisk = Storage::disk(
-            Config::get('cms.storage.media.disk', 'local'));
+            Config::get('cms.storage.media.disk', 'local')
+        );
     }
 
     /**
@@ -616,5 +671,19 @@ class MediaLibrary
         }
 
         return true;
+    }
+
+    protected function generateRandomTmpFolderName($location)
+    {
+        $temporaryDirBaseName = time();
+
+        $tmpPath = $location.'/tmp-'.$temporaryDirBaseName;
+
+        while ($this->folderExists($tmpPath)) {
+            $temporaryDirBaseName++;
+            $tmpPath = $location.'/tmp-'.$temporaryDirBaseName;
+        }
+
+        return $tmpPath;
     }
 }

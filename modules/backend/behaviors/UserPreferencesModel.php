@@ -1,15 +1,15 @@
 <?php namespace Backend\Behaviors;
 
 use System\Behaviors\SettingsModel;
-use Backend\Models\UserPreferences;
+use Backend\Models\UserPreference;
 
 /**
  * User Preferences model extension, identical to System.Behaviors.SettingsModel
- * except values are set against the logged in user's preferences via Backend\Models\UserPreferences.
+ * except values are set against the logged in user's preferences via Backend\Models\UserPreference.
  *
  * Usage:
  *
- * In the model class definition: 
+ * In the model class definition:
  *
  *   public $implement = ['Backend.Behaviors.UserPreferencesModel'];
  *   public $settingsCode = 'author.plugin::code';
@@ -18,6 +18,9 @@ use Backend\Models\UserPreferences;
  */
 class UserPreferencesModel extends SettingsModel
 {
+    /**
+     * @var array Internal cache of model objects.
+     */
     private static $instances = [];
 
     /**
@@ -27,7 +30,7 @@ class UserPreferencesModel extends SettingsModel
     {
         parent::__construct($model);
 
-        $this->model->table = 'backend_user_preferences';
+        $this->model->setTable('backend_user_preferences');
     }
 
     /**
@@ -61,8 +64,9 @@ class UserPreferencesModel extends SettingsModel
      */
     public function getSettingsRecord()
     {
-        $item = UserPreferences::forUser();
-        $record = $item->scopeFindRecord($this->model, $this->recordCode, $item->userContext)
+        $item = UserPreference::forUser();
+        $record = $item
+            ->scopeApplyKeyAndUser($this->model, $this->recordCode, $item->userContext)
             ->remember(1440, $this->getCacheKey())
             ->first();
 
@@ -75,7 +79,7 @@ class UserPreferencesModel extends SettingsModel
      */
     public function beforeModelSave()
     {
-        $preferences = UserPreferences::forUser();
+        $preferences = UserPreference::forUser();
         list($namespace, $group, $item) = $preferences->parseKey($this->recordCode);
         $this->model->item = $item;
         $this->model->group = $group;
@@ -108,6 +112,8 @@ class UserPreferencesModel extends SettingsModel
      */
     protected function getCacheKey()
     {
-        return 'backend::userpreferences.'.$this->recordCode;
+        $item = UserPreference::forUser();
+        $userId = $item->userContext ? $item->userContext->id : 0;
+        return $this->recordCode.'-userpreference-'.$userId;
     }
 }

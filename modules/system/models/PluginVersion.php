@@ -79,7 +79,15 @@ class PluginVersion extends Model
             $this->description = Lang::get('system::lang.plugins.unknown_plugin');
             $this->orphaned = true;
         }
+    }
 
+    /**
+     * Returns true if the plugin should be updated by the system.
+     * @return bool
+     */
+    public function getIsUpdatableAttribute()
+    {
+        return !$this->is_disabled && !$this->disabledBySystem && !$this->disabledByConfig;
     }
 
     /**
@@ -87,7 +95,7 @@ class PluginVersion extends Model
      * @param $query
      * @return mixed
      */
-    public function scopeIsEnabled($query)
+    public function scopeApplyEnabled($query)
     {
         return $query->where('is_disabled', '!=', 1);
     }

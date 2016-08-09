@@ -66,7 +66,7 @@ class PluginManager
     protected function init()
     {
         $this->bindContainerObjects();
-        $this->metaFile = storage_path() . '/cms/disabled.json';
+        $this->metaFile = storage_path('cms/disabled.json');
         $this->loadDisabled();
         $this->loadPlugins();
         $this->loadDependencies();
@@ -166,12 +166,24 @@ class PluginManager
             $pluginId = $this->getIdentifier($plugin);
         }
 
-        if (!$plugin || $plugin->disabled) {
+        if (!$plugin) {
             return;
         }
 
         $pluginPath = $this->getPluginPath($plugin);
         $pluginNamespace = strtolower($pluginId);
+
+        /*
+         * Register language namespaces
+         */
+        $langPath = $pluginPath . '/lang';
+        if (File::isDirectory($langPath)) {
+            Lang::addNamespace($pluginNamespace, $langPath);
+        }
+
+        if ($plugin->disabled) {
+            return;
+        }
 
         /*
          * Register plugin class autoloaders
@@ -183,14 +195,6 @@ class PluginManager
 
         if (!self::$noInit || $plugin->elevated) {
             $plugin->register();
-        }
-
-        /*
-         * Register language namespaces
-         */
-        $langPath = $pluginPath . '/lang';
-        if (File::isDirectory($langPath)) {
-            Lang::addNamespace($pluginNamespace, $langPath);
         }
 
         /*
@@ -360,7 +364,9 @@ class PluginManager
             return $plugins;
         }
 
-        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dirPath));
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dirPath, RecursiveDirectoryIterator::FOLLOW_SYMLINKS)
+        );
         $it->setMaxDepth(2);
         $it->rewind();
 
@@ -455,6 +461,7 @@ class PluginManager
         if (array_key_exists($code, $this->disabledPlugins)) {
             return true;
         }
+        return false;
     }
 
     /**
@@ -469,7 +476,8 @@ class PluginManager
     /**
      * Disables a single plugin in the system.
      * @param string $id Plugin code/namespace
-     * @param bool $user Set to true if disabled by the user
+     * @param bool $isUser Set to true if disabled by the user
+     * @return bool
      */
     public function disablePlugin($id, $isUser = false)
     {
@@ -491,7 +499,8 @@ class PluginManager
     /**
      * Enables a single plugin in the system.
      * @param string $id Plugin code/namespace
-     * @param bool $user Set to true if enabled by the user
+     * @param bool $isUser Set to true if enabled by the user
+     * @return bool
      */
     public function enablePlugin($id, $isUser = false)
     {

@@ -20,11 +20,11 @@
         <?php foreach ($fileList as $file): ?>
             <div class="upload-object is-success" data-id="<?= $file->id ?>" data-path="<?= $file->pathUrl ?>">
                 <div class="icon-container image">
-                    <img src="<?= $file->thumbUrl ?>" />
+                    <img src="<?= $file->thumbUrl ?>" alt="" />
                 </div>
                 <div class="info">
                     <h4 class="filename">
-                        <span data-dz-name><?= $file->title ?: $file->file_name ?></span>
+                        <span data-dz-name><?= e($file->title ?: $file->file_name) ?></span>
                         <a
                             href="javascript:;"
                             class="upload-remove-button"
@@ -47,7 +47,7 @@
 <script type="text/template" id="<?= $this->getId('template') ?>">
     <div class="upload-object dz-preview dz-file-preview">
         <div class="icon-container image">
-            <img data-dz-thumbnail />
+            <img data-dz-thumbnail alt="" />
         </div>
         <div class="info">
             <h4 class="filename">

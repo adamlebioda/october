@@ -202,7 +202,7 @@
             mode = this.getSelectionMode()
 
         switch (mode) {
-            case 'fixed-ratio' : 
+            case 'fixed-ratio' :
                 this.jCrop.setOptions({
                     aspectRatio: width/height,
                     minSize: [0, 0],
@@ -210,7 +210,7 @@
                     allowResize: true
                 })
             break
-            case 'fixed-size' : 
+            case 'fixed-size' :
                 this.jCrop.setOptions({
                     aspectRatio: 0,
                     minSize: [width, height],
@@ -218,7 +218,7 @@
                     allowResize: false
                 })
             break
-            case 'normal' : 
+            case 'normal' :
                 this.jCrop.setOptions({
                     aspectRatio: 0,
                     minSize: [0, 0],
@@ -236,20 +236,24 @@
         }
 
         $.oc.stripeLoadIndicator.show()
-        this.$popupElement.find('form').request(
-            this.options.alias+'::onCropImage', {
+
+        this.$popupElement
+            .find('form')
+            .request(this.options.alias+'::onCropImage', {
                 data: data
-            }
-        ).always(function() {
-            $.oc.stripeLoadIndicator.hide()
-        }).done(this.proxy(this.onImageCropped))
+            })
+            .always(function() {
+                $.oc.stripeLoadIndicator.hide()
+            })
+            .done(this.proxy(this.onImageCropped))
     }
 
     MediaManagerImageCropPopup.prototype.onImageCropped = function(response) {
         this.hide()
 
-        if (this.options.onDone !== undefined)
-            this.options.onDone(response.result)
+        if (this.options.onDone !== undefined) {
+            this.options.onDone(response)
+        }
     }
 
     MediaManagerImageCropPopup.prototype.showResizePopup = function() {
@@ -310,7 +314,7 @@
         var data = {
                 cropSessionKey: this.$popupElement.find('input[name=cropSessionKey]').val(),
                 path: this.$popupElement.find('input[name=path]').val()
-            } 
+            }
 
         $.oc.stripeLoadIndicator.show()
         $(ev.target).request(this.options.alias+'::onResizeImage', {
@@ -334,7 +338,7 @@
 
         this.$popupElement.find('span[data-label=width]').text(width)
         this.$popupElement.find('span[data-label=height]').text(hegiht)
-        
+
         this.$popupElement.find('input[data-control=dimension-width]').val(width)
         this.$popupElement.find('input[data-control=dimension-height]').val(hegiht)
 
@@ -366,8 +370,8 @@
         }
 
         this.selectionSizeLabel.setAttribute('class', '')
-        this.selectionSizeLabel.querySelector('[data-label=selection-width]').textContent = width
-        this.selectionSizeLabel.querySelector('[data-label=selection-height]').textContent = height
+        this.selectionSizeLabel.querySelector('[data-label=selection-width]').textContent = parseInt(width)
+        this.selectionSizeLabel.querySelector('[data-label=selection-height]').textContent = parseInt(height)
     }
 
     // EVENT HANDLERS
@@ -399,6 +403,7 @@
 
         this.initRulers()
         this.initJCrop()
+        this.applySelectionMode()
     }
 
     MediaManagerImageCropPopup.prototype.onSelectionModeChanged = function() {
@@ -409,7 +414,8 @@
         if (mode === 'normal') {
             $widthInput.attr('disabled', 'disabled')
             $heightInput.attr('disabled', 'disabled')
-        } else {
+        }
+        else {
             $widthInput.removeAttr('disabled')
             $heightInput.removeAttr('disabled')
 
@@ -449,13 +455,13 @@
         var command = $(ev.currentTarget).data('command')
 
         switch (command) {
-            case 'insert' : 
+            case 'insert':
                 this.cropAndInsert()
             break
-            case 'resize' :
+            case 'resize':
                 this.showResizePopup()
             break
-            case 'undo-resizing' :
+            case 'undo-resizing':
                 this.undoResizing()
             break
         }

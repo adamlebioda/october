@@ -6,10 +6,12 @@ return [
         'tagline' => 'Getting back to basics',
     ],
     'locale' => [
+        'cs' => 'Checo',
+        'da' => 'Danish',
         'en' => 'Inglés',
         'nl' => 'Holandés',
         'ja' => 'Japonés',
-        'se' => 'Suizo',
+        'sv' => 'Suizo',
         'tr' => 'Turco',
         'de' => 'Alemán',
         'ru' => 'Ruso',

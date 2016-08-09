@@ -12,6 +12,12 @@ return [
         'delete_success' => '模板成功删除: :count.',
         'file_name_required' => '需要文件名字段.'
     ],
+    'dashboard' => [
+        'active_theme' => [
+            'online' => '在线',
+            'maintenance' => '维护中',
+        ]
+    ],
     'theme' => [
         'not_found_name' => "主题 ':name' 没找到.",
         'active' => [
@@ -154,10 +160,10 @@ return [
         'layout' => '布局',
         'description' => '描述',
         'preview' => '预览',
-        'meta' => 'Meta',
-        'meta_title' => 'Meta 标题',
-        'meta_description' => 'Meta 描述',
-        'markup' => 'Markup',
+        'meta' => '元素',
+        'meta_title' => '元素标题',
+        'meta_description' => '元素描述',
+        'markup' => '标记',
         'code' => '代码',
         'content' => '内容',
         'hidden' => '隐藏',
@@ -225,7 +231,7 @@ return [
         'saved'=> '模板保存成功.'
     ],
     'permissions' => [
-        'name' => 'Cms',
+        'name' => 'CMS',
         'manage_content' => '管理内容',
         'manage_assets' => '管理资源',
         'manage_pages' => '管理页面',
@@ -262,7 +268,6 @@ return [
         'uploading_file_num' => '上传 :number 文件...',
         'uploading_complete' => '上传完毕',
         'order_by' => '排序',
-        'search' => '搜索',
         'folder' => '文件夹',
         'no_files_found' => '没找到你请求的文件.',
         'delete_empty' => '请选择删除项.',

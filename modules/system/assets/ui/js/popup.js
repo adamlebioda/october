@@ -1,26 +1,10 @@
 /*
-=require ../vendor/bootstrap/js/modal.js
-*/
-/*
  * Ajax Popup plugin
  *
- * Options:
- * - content: content HTML string or callback
- * 
- * Data attributes:
- * - data-control="popup" - enables the ajax popup plugin
- * - data-ajax="popup-content.htm" - ajax content to load
- * - data-handler="widget:pluginName" - October ajax request name
- * - data-keyboard="false" - Allow popup to be closed with the keyboard
- * - data-request-data="file_id: 1" - October ajax request data
- * - data-size="large" - Popup size, available sizes: giant, huge, large, small, tiny
+ * Documentation: ../docs/popup.md
  *
- * JavaScript API:
- * $('a#someLink').popup({ ajax: 'popup-content.htm' })
- * $('a#someLink').popup({ handler: 'onOpenPopupForm' })
- *
- * Dependences:
- * - Bootstrap Modal (modal.js)
+ * Require:
+ *  - bootstrap/modal
  */
 
 +function ($) { "use strict";
@@ -41,6 +25,7 @@
 
         this.$container = this.createPopupContainer()
         this.$content = this.$container.find('.modal-content:first')
+        this.$dialog = this.$container.find('.modal-dialog:first')
         this.$modal = this.$container.modal({ show: false, backdrop: false, keyboard: this.options.keyboard })
 
         /*
@@ -116,7 +101,7 @@
         if (this.options.handler) {
 
             this.$el.request(this.options.handler, {
-                data: this.options.extraData,
+                data: paramToObj('data-extra-data', this.options.extraData),
                 success: function(data, textStatus, jqXHR) {
                     this.success(data, textStatus, jqXHR).done(function(){
                         self.setContent(data.result)
@@ -143,7 +128,7 @@
 
             $.ajax({
                 url: this.options.ajax,
-                data: this.options.extraData,
+                data: paramToObj('data-extra-data', this.options.extraData),
                 success: function(data) {
                     self.setContent(data)
                 },
@@ -197,6 +182,15 @@
         this.firstDiv = this.$content.find('>div:first')
         if (this.firstDiv.length > 0)
             this.firstDiv.data('oc.popup', this)
+
+        var $defaultFocus = $('[default-focus]', this.$content)
+        if ($defaultFocus.is(":visible"))
+        {
+            window.setTimeout(function() {
+                $defaultFocus.focus()
+                $defaultFocus = null
+            }, 300)
+        }
     }
 
     Popup.prototype.setBackdrop = function(val) {
@@ -261,6 +255,10 @@
         this.$modal.on('click.dismiss.popup', '[data-dismiss="popup"]', $.proxy(this.hide, this))
         this.triggerEvent('popupShow') // Deprecated
         this.triggerEvent('show.oc.popup')
+
+        // Fixes an issue where the Modal makes `position: fixed` elements relative to itself
+        // https://github.com/twbs/bootstrap/issues/15856
+        this.$dialog.css('transform', 'inherit')
     }
 
     Popup.prototype.hide = function() {
@@ -269,6 +267,10 @@
 
         if (this.allowHide)
             this.$modal.modal('hide')
+
+        // Fixes an issue where the Modal makes `position: fixed` elements relative to itself
+        // https://github.com/twbs/bootstrap/issues/15856
+        this.$dialog.css('transform', '')
     }
 
     /*
@@ -331,10 +333,22 @@
     // POPUP DATA-API
     // ===============
 
-    $(document).on('click.oc.popup', '[data-control="popup"]', function() {
-        $(this).popup()
+    function paramToObj(name, value) {
+        if (value === undefined) value = ''
+        if (typeof value == 'object') return value
 
-        return false
+        try {
+            return JSON.parse(JSON.stringify(eval("({" + value + "})")))
+        }
+        catch (e) {
+            throw new Error('Error parsing the '+name+' attribute value. '+e)
+        }
+    }
+
+    $(document).on('click.oc.popup', '[data-control="popup"]', function(event) {
+        event.preventDefault()
+
+        $(this).popup()
     });
 
     /*

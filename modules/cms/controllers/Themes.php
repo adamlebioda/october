@@ -247,20 +247,21 @@ class Themes extends Controller
     /**
      * Add form fields defined in theme.yaml
      */
-    protected function formExtendFields($form)
+    public function formExtendFields($form)
     {
         $model = $form->model;
         $theme = $this->findThemeObject($model->theme);
+        $config = $theme->getConfigArray('form');
 
-        if ($fields = $theme->getConfigValue('form.fields')) {
+        if ($fields = array_get($config, 'fields')) {
             $form->addFields($fields);
         }
 
-        if ($fields = $theme->getConfigValue('form.tabs.fields')) {
+        if ($fields = array_get($config, 'tabs.fields')) {
             $form->addTabFields($fields);
         }
 
-        if ($fields = $theme->getConfigValue('form.secondaryTabs.fields')) {
+        if ($fields = array_get($config, 'secondaryTabs.fields')) {
             $form->addSecondaryTabFields($fields);
         }
     }

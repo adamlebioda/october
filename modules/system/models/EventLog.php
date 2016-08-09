@@ -1,7 +1,8 @@
 <?php namespace System\Models;
 
+use App;
 use Str;
-use Model;
+use October\Rain\Database\Model;
 use Exception;
 
 /**
@@ -21,6 +22,20 @@ class EventLog extends Model
      * @var array List of attribute names which are json encoded and decoded from the database.
      */
     protected $jsonable = ['details'];
+
+    /**
+     * Returns true if this logger should be used.
+     * @return bool
+     */
+    public static function useLogging()
+    {
+        return (
+            class_exists('Model') &&
+            Model::getConnectionResolver() &&
+            App::hasDatabase() &&
+            !defined('OCTOBER_NO_EVENT_LOGGING')
+        );
+    }
 
     /**
      * Creates a log record

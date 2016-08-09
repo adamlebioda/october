@@ -6,7 +6,6 @@ use Event;
 use Config;
 use Backend;
 use Request;
-use DbDongle;
 use Validator;
 use BackendMenu;
 use BackendAuth;
@@ -20,7 +19,7 @@ use System\Twig\Engine as TwigEngine;
 use System\Twig\Loader as TwigLoader;
 use System\Twig\Extension as TwigExtension;
 use System\Models\EventLog;
-use System\Models\MailSettings;
+use System\Models\MailSetting;
 use System\Models\MailTemplate;
 use System\Classes\CombineAssets;
 use Backend\Classes\WidgetManager;
@@ -98,9 +97,11 @@ class ServiceProvider extends ModuleServiceProvider
         App::singleton('backend.helper', function () {
             return new \Backend\Helpers\Backend;
         });
+
         App::singleton('backend.menu', function () {
             return \Backend\Classes\NavigationManager::instance();
         });
+
         App::singleton('backend.auth', function () {
             return \Backend\Classes\AuthManager::instance();
         });
@@ -179,6 +180,8 @@ class ServiceProvider extends ModuleServiceProvider
                 'trans'          => ['Lang', 'get'],
                 'transchoice'    => ['Lang', 'choice'],
                 'md'             => ['Markdown', 'parse'],
+                'time_since'     => ['System\Helpers\DateTime', 'timeSince'],
+                'time_tense'     => ['System\Helpers\DateTime', 'timeTense'],
             ]);
         });
     }
@@ -204,7 +207,7 @@ class ServiceProvider extends ModuleServiceProvider
          * Add CMS based cache clearing to native command
          */
         Event::listen('cache:cleared', function() {
-            \System\Helpers\Cache::clear();
+            \System\Helpers\Cache::clearInternal();
         });
 
         /*
@@ -216,6 +219,8 @@ class ServiceProvider extends ModuleServiceProvider
         $this->registerConsoleCommand('october.util', 'System\Console\OctoberUtil');
         $this->registerConsoleCommand('october.mirror', 'System\Console\OctoberMirror');
         $this->registerConsoleCommand('october.fresh', 'System\Console\OctoberFresh');
+        $this->registerConsoleCommand('october.env', 'System\Console\OctoberEnv');
+        $this->registerConsoleCommand('october.install', 'System\Console\OctoberInstall');
 
         $this->registerConsoleCommand('plugin.install', 'System\Console\PluginInstall');
         $this->registerConsoleCommand('plugin.remove', 'System\Console\PluginRemove');
@@ -244,7 +249,7 @@ class ServiceProvider extends ModuleServiceProvider
     protected function registerLogging()
     {
         Event::listen('illuminate.log', function ($level, $message, $context) {
-            if (DbDongle::hasDatabase() && !defined('OCTOBER_NO_EVENT_LOGGING')) {
+            if (EventLog::useLogging()) {
                 EventLog::add($message, $level);
             }
         });
@@ -256,10 +261,10 @@ class ServiceProvider extends ModuleServiceProvider
     protected function registerTwigParser()
     {
         /*
-         * Register basic Twig
+         * Register system Twig environment
          */
-        App::singleton('twig', function ($app) {
-            $twig = new Twig_Environment(new TwigLoader(), ['auto_reload' => true]);
+        App::singleton('twig.environment', function ($app) {
+            $twig = new Twig_Environment(new TwigLoader, ['auto_reload' => true]);
             $twig->addExtension(new TwigExtension);
             return $twig;
         });
@@ -268,16 +273,7 @@ class ServiceProvider extends ModuleServiceProvider
          * Register .htm extension for Twig views
          */
         App::make('view')->addExtension('htm', 'twig', function () {
-            return new TwigEngine(App::make('twig'));
-        });
-
-        /*
-         * Register Twig that will parse strings
-         */
-        App::singleton('twig.string', function ($app) {
-            $twig = $app['twig'];
-            $twig->setLoader(new Twig_Loader_String);
-            return $twig;
+            return new TwigEngine(App::make('twig.environment'));
         });
     }
 
@@ -290,8 +286,8 @@ class ServiceProvider extends ModuleServiceProvider
          * Override system mailer with mail settings
          */
         Event::listen('mailer.beforeRegister', function () {
-            if (MailSettings::isConfigured()) {
-                MailSettings::applyConfigValues();
+            if (MailSetting::isConfigured()) {
+                MailSetting::applyConfigValues();
             }
         });
 
@@ -299,9 +295,8 @@ class ServiceProvider extends ModuleServiceProvider
          * Override standard Mailer content with template
          */
         Event::listen('mailer.beforeAddContent', function ($mailer, $message, $view, $data) {
-            if (MailTemplate::addContentToMailer($message, $view, $data)) {
-                return false;
-            }
+            MailTemplate::addContentToMailer($message, $view, $data);
+            return false;
         });
     }
 
@@ -315,6 +310,7 @@ class ServiceProvider extends ModuleServiceProvider
                 'system' => [
                     'label'       => 'system::lang.settings.menu_label',
                     'icon'        => 'icon-cog',
+                    'iconSvg'     => 'modules/system/assets/images/cog-icon.svg',
                     'url'         => Backend::url('system/settings'),
                     'permissions' => [],
                     'order'       => 1000
@@ -343,7 +339,6 @@ class ServiceProvider extends ModuleServiceProvider
                 'context' => 'dashboard'
             ]);
         });
-
     }
 
     /*
@@ -403,7 +398,7 @@ class ServiceProvider extends ModuleServiceProvider
                     'description' => 'system::lang.mail.menu_description',
                     'category'    => SettingsManager::CATEGORY_MAIL,
                     'icon'        => 'icon-envelope',
-                    'class'       => 'System\Models\MailSettings',
+                    'class'       => 'System\Models\MailSetting',
                     'permissions' => ['system.manage_mail_settings'],
                     'order'       => 600
                 ],
@@ -423,7 +418,8 @@ class ServiceProvider extends ModuleServiceProvider
                     'icon'        => 'icon-exclamation-triangle',
                     'url'         => Backend::url('system/eventlogs'),
                     'permissions' => ['system.access_logs'],
-                    'order'       => 900
+                    'order'       => 900,
+                    'keywords'    => 'error exception'
                 ],
                 'request_logs' => [
                     'label'       => 'system::lang.request_log.menu_label',
@@ -432,7 +428,8 @@ class ServiceProvider extends ModuleServiceProvider
                     'icon'        => 'icon-file-o',
                     'url'         => Backend::url('system/requestlogs'),
                     'permissions' => ['system.access_logs'],
-                    'order'       => 910
+                    'order'       => 910,
+                    'keywords'    => '404 error'
                 ]
             ]);
         });
@@ -448,6 +445,8 @@ class ServiceProvider extends ModuleServiceProvider
          */
         CombineAssets::registerCallback(function($combiner) {
             $combiner->registerBundle('~/modules/system/assets/less/styles.less');
+            $combiner->registerBundle('~/modules/system/assets/ui/storm.less');
+            $combiner->registerBundle('~/modules/system/assets/ui/storm.js');
         });
     }
 
@@ -461,7 +460,7 @@ class ServiceProvider extends ModuleServiceProvider
          * - extensions: png,jpg,txt
          */
         Validator::extend('extensions', function($attribute, $value, $parameters) {
-            $extension = $value->getClientOriginalExtension();
+            $extension = strtolower($value->getClientOriginalExtension());
             return in_array($extension, $parameters);
         });
 

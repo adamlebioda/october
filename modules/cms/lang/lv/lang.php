@@ -12,6 +12,12 @@ return [
         'delete_success' => 'Tika veiksmīgi izdzēstas veidnes: :count.',
         'file_name_required' => 'Faila nosaukuma lauks ir obligāts.'
     ],
+    'dashboard' => [
+        'active_theme' => [
+            'online' => 'online',
+            'maintenance' => 'atkopšana',
+        ]
+    ],
     'theme' => [
         'not_found_name' => "Tēma ':name' netika atrasta.",
         'active' => [
@@ -266,7 +272,6 @@ return [
         'uploading_file_num' => 'Augšupielādējam :number failu(us)...',
         'uploading_complete' => 'Augšupielāde pabeigta',
         'order_by' => 'Kārtot pēc',
-        'search' => 'Meklēt',
         'folder' => 'Mape',
         'no_files_found' => 'Jūsu pieprasītie faili netika atrasti.',
         'delete_empty' => 'Lūdzu izvēlaties objektus, kurus dzēst.',

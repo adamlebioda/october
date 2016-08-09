@@ -34,6 +34,7 @@ class NavigationManager
         'code'        => null,
         'label'       => null,
         'icon'        => null,
+        'iconSvg'     => null,
         'url'         => null,
         'permissions' => [],
         'order'       => 500,
@@ -45,6 +46,7 @@ class NavigationManager
         'label'       => null,
         'icon'        => null,
         'url'         => null,
+        'iconSvg'     => null,
         'counter'     => null,
         'counterLabel'=> null,
         'order'       => -1,
@@ -100,7 +102,7 @@ class NavigationManager
         /*
          * Sort menu items
          */
-        usort($this->items, function ($a, $b) {
+        uasort($this->items, function ($a, $b) {
             return $a->order - $b->order;
         });
 
@@ -127,7 +129,7 @@ class NavigationManager
             /*
              * Sort side menu items
              */
-            usort($item->sideMenu, function ($a, $b) {
+            uasort($item->sideMenu, function ($a, $b) {
                 return $a->order - $b->order;
             });
 
@@ -247,6 +249,15 @@ class NavigationManager
     }
 
     /**
+     * Removes a single main menu item
+     */
+    public function removeMainMenuItem($owner, $code)
+    {
+        $itemKey = $this->makeItemKey($owner, $code);
+        unset($this->items[$itemKey]);
+    }
+
+    /**
      * Dynamically add an array of side menu items
      * @param string $owner
      * @param string $code
@@ -273,6 +284,11 @@ class NavigationManager
             return false;
         }
 
+        $definition = array_merge($definition, [
+            'code'  => $sideCode,
+            'owner' => $owner
+        ]);
+
         $mainItem = $this->items[$itemKey];
         if (isset($mainItem->sideMenu[$sideCode])) {
             $definition = array_merge((array) $mainItem->sideMenu[$sideCode], $definition);
@@ -280,6 +296,20 @@ class NavigationManager
 
         $item = (object) array_merge(self::$sideItemDefaults, $definition);
         $this->items[$itemKey]->sideMenu[$sideCode] = $item;
+    }
+
+    /**
+     * Removes a single main menu item
+     */
+    public function removeSideMenuItem($owner, $code, $sideCode)
+    {
+        $itemKey = $this->makeItemKey($owner, $code);
+        if (!isset($this->items[$itemKey])) {
+            return false;
+        }
+
+        $mainItem = $this->items[$itemKey];
+        unset($mainItem->sideMenu[$sideCode]);
     }
 
     /**
@@ -461,6 +491,10 @@ class NavigationManager
      */
     protected function filterItemPermissions($user, array $items)
     {
+        if (!$user) {
+            return $items;
+        }
+
         $items = array_filter($items, function ($item) use ($user) {
             if (!$item->permissions || !count($item->permissions)) {
                 return true;

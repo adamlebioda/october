@@ -2,8 +2,12 @@
 
 use File;
 use Lang;
+use Event;
 use Block;
 use SystemException;
+use Exception;
+use Throwable;
+use Symfony\Component\Debug\Exception\FatalThrowableError;
 
 /**
  * View Maker Trait
@@ -71,7 +75,8 @@ trait ViewMaker
     /**
      * Loads a view with the name specified. Applies layout if its name is provided by the parent object.
      * The view file must be situated in the views directory, and has the extension "htm".
-     * @param string $view Specifies the view name, without extension. Eg: "index". 
+     * @param string $view Specifies the view name, without extension. Eg: "index".
+     * @return string
      */
     public function makeView($view)
     {
@@ -83,9 +88,8 @@ trait ViewMaker
     /**
      * Renders supplied contents inside a layout.
      * @param string $contents The inner contents as a string.
-     * @param string $name Specifies the layout name.
-     * If this parameter is omitted, the $layout property will be used.
-     * @return string The layout contents
+     * @param string $layout Specifies the layout name.
+     * @return string
      */
     public function makeViewContent($contents, $layout = null)
     {
@@ -96,7 +100,7 @@ trait ViewMaker
         // Append any undefined block content to the body block
         Block::set('undefinedBlock', $contents);
         Block::append('body', Block::get('undefinedBlock'));
-        return $this->makeLayout();
+        return $this->makeLayout($layout);
     }
 
     /**
@@ -105,13 +109,13 @@ trait ViewMaker
      * If this parameter is omitted, the $layout property will be used.
      * @param array $params Parameter variables to pass to the view.
      * @param bool $throwException Throw an exception if the layout is not found
-     * @return string The layout contents
+     * @return mixed The layout contents, or false.
      */
     public function makeLayout($name = null, $params = [], $throwException = true)
     {
-        $layout = ($name === null) ? $this->layout : $name;
+        $layout = $name === null ? $this->layout : $name;
         if ($layout == '') {
-            return;
+            return '';
         }
 
         $layoutPath = $this->getViewPath($layout . '.htm', $this->layoutPath);
@@ -175,11 +179,11 @@ trait ViewMaker
         foreach ($viewPath as $path) {
             $_fileName = File::symbolizePath($path) . '/' . $fileName;
             if (File::isFile($_fileName)) {
-                break;
+                return $_fileName;
             }
         }
 
-        return $_fileName;
+        return $fileName;
     }
 
     /**
@@ -192,7 +196,7 @@ trait ViewMaker
     public function makeFileContents($filePath, $extraParams = [])
     {
         if (!strlen($filePath) || !File::isFile($filePath)) {
-            return;
+            return '';
         }
 
         if (!is_array($extraParams)) {
@@ -201,10 +205,43 @@ trait ViewMaker
 
         $vars = array_merge($this->vars, $extraParams);
 
+        $obLevel = ob_get_level();
+
         ob_start();
+
         extract($vars);
-        include $filePath;
+
+        // We'll evaluate the contents of the view inside a try/catch block so we can
+        // flush out any stray output that might get out before an error occurs or
+        // an exception is thrown. This prevents any partial views from leaking.
+        try {
+            include $filePath;
+        }
+        catch (Exception $e) {
+            $this->handleViewException($e, $obLevel);
+        }
+        catch (Throwable $e) {
+            $this->handleViewException(new FatalThrowableError($e), $obLevel);
+        }
+
         return ob_get_clean();
+    }
+
+    /**
+     * Handle a view exception.
+     *
+     * @param  \Exception  $e
+     * @param  int  $obLevel
+     * @return void
+     *
+     */
+    protected function handleViewException($e, $obLevel)
+    {
+        while (ob_get_level() > $obLevel) {
+            ob_end_clean();
+        }
+
+        throw $e;
     }
 
     /**
@@ -232,5 +269,23 @@ trait ViewMaker
         $classFile = realpath(dirname(File::fromClass($class)));
         $guessedPath = $classFile ? $classFile . '/' . $classFolder . $suffix : null;
         return ($isPublic) ? File::localToPublic($guessedPath) : $guessedPath;
+    }
+
+    /**
+     * Special event function used for extending within view files
+     * @param string $event Event name
+     * @param array $params Event parameters
+     * @return string
+     */
+    public function fireViewEvent($event, $params = [])
+    {
+        // Add the local object to the first parameter always
+        array_unshift($params, $this);
+
+        if ($result = Event::fire($event, $params)) {
+            return implode(PHP_EOL.PHP_EOL, (array) $result);
+        }
+
+        return '';
     }
 }

@@ -39,7 +39,12 @@ class FormController extends ControllerBehavior
     const CONTEXT_PREVIEW = 'preview';
 
     /**
-     * @var Backend\Classes\WidgetBase Reference to the widget object.
+     * @var \Backend\Classes\Controller|FormController Reference to the back end controller.
+     */
+    protected $controller;
+
+    /**
+     * @var \Backend\Widgets\Form Reference to the widget object.
      */
     protected $formWidget;
 
@@ -125,8 +130,9 @@ class FormController extends ControllerBehavior
             $this->controller->formExtendFields($this->formWidget, $fields);
         });
 
-        $this->formWidget->bindEvent('form.beforeRefresh', function ($saveData) {
-            return $this->controller->formExtendRefreshData($this->formWidget, $saveData);
+        $this->formWidget->bindEvent('form.beforeRefresh', function ($holder) {
+            $result = $this->controller->formExtendRefreshData($this->formWidget, $holder->data);
+            if (is_array($result)) $holder->data = $result;
         });
 
         $this->formWidget->bindEvent('form.refreshFields', function ($fields) {
@@ -179,6 +185,8 @@ class FormController extends ControllerBehavior
             );
 
             $model = $this->controller->formCreateModelObject();
+            $model = $this->controller->formExtendModel($model) ?: $model;
+
             $this->initForm($model);
         }
         catch (Exception $ex) {
@@ -193,7 +201,10 @@ class FormController extends ControllerBehavior
     public function create_onSave($context = null)
     {
         $this->context = strlen($context) ? $context : $this->getConfig('create[context]', self::CONTEXT_CREATE);
+
         $model = $this->controller->formCreateModelObject();
+        $model = $this->controller->formExtendModel($model) ?: $model;
+
         $this->initForm($model);
 
         $this->controller->formBeforeSave($model);
@@ -362,9 +373,7 @@ class FormController extends ControllerBehavior
     protected function createModel()
     {
         $class = $this->config->modelClass;
-        $model = new $class();
-
-        $model = $this->controller->formExtendModel($model);
+        $model = new $class;
         return $model;
     }
 
@@ -379,6 +388,10 @@ class FormController extends ControllerBehavior
         $redirectUrl = null;
         if (post('close') && !ends_with($context, '-close')) {
             $context .= '-close';
+        }
+        
+        if (post('refresh', false)) {
+	        return Redirect::refresh();
         }
 
         if (post('redirect', true)) {
@@ -457,6 +470,15 @@ class FormController extends ControllerBehavior
     }
 
     /**
+     * Helper to check if a form tab has fields.
+     * @return bool
+     */
+    public function formHasOutsideFields()
+    {
+        return $this->formWidget->getTab('outside')->hasFields();
+    }
+
+    /**
      * Helper for custom layouts. Renders Outside Fields.
      * @return string The area HTML markup.
      */
@@ -466,12 +488,30 @@ class FormController extends ControllerBehavior
     }
 
     /**
+     * Helper to check if a form tab has fields.
+     * @return bool
+     */
+    public function formHasPrimaryTabs()
+    {
+        return $this->formWidget->getTab('primary')->hasFields();
+    }
+
+    /**
      * Helper for custom layouts. Renders Primary Tabs.
      * @return string The tab HTML markup.
      */
     public function formRenderPrimaryTabs()
     {
         return $this->formRender(['section' => 'primary']);
+    }
+
+    /**
+     * Helper to check if a form tab has fields.
+     * @return bool
+     */
+    public function formHasSecondaryTabs()
+    {
+        return $this->formWidget->getTab('secondary')->hasFields();
     }
 
     /**
@@ -570,7 +610,6 @@ class FormController extends ControllerBehavior
     {
     }
 
-
     /**
      * Finds a Model record by its primary identifier, used by update actions. This logic
      * can be changed by overriding it in the controller.
@@ -583,7 +622,7 @@ class FormController extends ControllerBehavior
             throw new ApplicationException($this->getLang('not-found-message', 'backend::lang.form.missing_id'));
         }
 
-        $model = $this->createModel();
+        $model = $this->controller->formCreateModelObject();
 
         /*
          * Prepare query and find model record
@@ -598,12 +637,14 @@ class FormController extends ControllerBehavior
             ]));
         }
 
+        $result = $this->controller->formExtendModel($result) ?: $result;
+
         return $result;
     }
 
     /**
-     * Creates a new instance of a form model, used by create actions. This logic
-     * can be changed by overriding it in the controller.
+     * Creates a new instance of a form model. This logic can be changed
+     * by overriding it in the controller.
      * @return Model
      */
     public function formCreateModelObject()
@@ -667,7 +708,6 @@ class FormController extends ControllerBehavior
      */
     public function formExtendModel($model)
     {
-        return $model;
     }
 
     /**
@@ -692,7 +732,7 @@ class FormController extends ControllerBehavior
             if (!is_a($widget->getController(), $calledClass)) {
                 return;
             }
-            $callback($widget, $widget->model, $widget->getContext());
+            call_user_func_array($callback, [$widget, $widget->model, $widget->getContext()]);
         });
     }
 

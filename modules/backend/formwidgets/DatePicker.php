@@ -1,6 +1,9 @@
 <?php namespace Backend\FormWidgets;
 
+use Carbon\Carbon;
+use Backend\Classes\FormField;
 use Backend\Classes\FormWidgetBase;
+use System\Helpers\DateTime as DateTimeHelper;
 
 /**
  * Date picker
@@ -11,8 +14,6 @@ use Backend\Classes\FormWidgetBase;
  */
 class DatePicker extends FormWidgetBase
 {
-    const TIME_PREFIX = '___time_';
-
     //
     // Configurable properties
     //
@@ -24,13 +25,15 @@ class DatePicker extends FormWidgetBase
 
     /**
      * @var string the minimum/earliest date that can be selected.
+     * eg: 2000-01-01
      */
-    public $minDate = '2000-01-01';
+    public $minDate = null;
 
     /**
      * @var string the maximum/latest date that can be selected.
+     * eg: 2020-12-31
      */
-    public $maxDate = '2020-12-31';
+    public $maxDate = null;
 
     //
     // Object properties
@@ -47,12 +50,25 @@ class DatePicker extends FormWidgetBase
     public function init()
     {
         $this->fillFromConfig([
+            'format',
             'mode',
             'minDate',
             'maxDate',
         ]);
 
         $this->mode = strtolower($this->mode);
+
+        if ($this->minDate !== null) {
+            $this->minDate = is_integer($this->minDate)
+                ? Carbon::createFromTimestamp($this->minDate)
+                : Carbon::parse($this->minDate);
+        }
+
+        if ($this->maxDate !== null) {
+            $this->maxDate = is_integer($this->maxDate)
+                ? Carbon::createFromTimestamp($this->maxDate)
+                : Carbon::parse($this->maxDate);
+        }
     }
 
     /**
@@ -71,43 +87,34 @@ class DatePicker extends FormWidgetBase
     {
         $this->vars['name'] = $this->formField->getName();
 
-        $this->vars['timeName'] = self::TIME_PREFIX.$this->formField->getName(false);
-        $this->vars['timeValue'] = null;
 
         if ($value = $this->getLoadValue()) {
+            $value = $value instanceof Carbon ? $value->toDateTimeString() : $value;
 
             /*
-             * Date / Time
+             * Time
              */
-            if ($this->mode == 'datetime') {
-                if (is_object($value)) {
-                    $value = $value->toDateTimeString();
-                }
-
-                $dateTime = explode(' ', $value);
-                $value = $dateTime[0];
-                $this->vars['timeValue'] = isset($dateTime[1]) ? substr($dateTime[1], 0, 5) : '';
+            if (strlen($value) <= 8) {
+                $value = Carbon::now()->toDateString() . ' ' . $value;
             }
-            /*
-             * Date
-             */
-            elseif ($this->mode == 'date') {
-                if (is_string($value)) {
-                    $value = substr($value, 0, 10);
-                }
-                elseif (is_object($value)) {
-                    $value = $value->toDateString();
-                }
-            }
-            elseif ($this->mode == 'time') {
-                if (is_object($value)) {
-                    $value = $value->toTimeString();
-                }
-            }
-
         }
 
+        /*
+         * Display alias, used by preview mode
+         */
+        if ($this->mode == 'time') {
+            $formatAlias = 'time';
+        }
+        elseif ($this->mode == 'date') {
+            $formatAlias = 'dateLong';
+        }
+        else {
+            $formatAlias = 'dateTimeLong';
+        }
+
+        $this->vars['formatAlias'] = $formatAlias;
         $this->vars['value'] = $value ?: '';
+        $this->vars['field'] = $this->formField;
         $this->vars['mode'] = $this->mode;
         $this->vars['minDate'] = $this->minDate;
         $this->vars['maxDate'] = $this->maxDate;
@@ -116,29 +123,14 @@ class DatePicker extends FormWidgetBase
     /**
      * {@inheritDoc}
      */
-    public function loadAssets()
-    {
-        $this->addCss('vendor/pikaday/css/pikaday.css', 'core');
-        $this->addCss('vendor/clockpicker/css/jquery-clockpicker.css', 'core');
-        $this->addCss('css/datepicker.css', 'core');
-        $this->addJs('js/build-min.js', 'core');
-    }
-
-    /**
-     * {@inheritDoc}
-     */
     public function getSaveValue($value)
     {
-        if (!strlen($value)) {
-            return null;
+        if ($this->formField->disabled || $this->formField->hidden) {
+            return FormField::NO_SAVE_DATA;
         }
 
-        $timeValue = post(self::TIME_PREFIX . $this->formField->getName(false));
-        if ($this->mode == 'datetime' && $timeValue) {
-            $value .= ' ' . $timeValue . ':00';
-        }
-        elseif ($this->mode == 'time') {
-            $value .= ':00';
+        if (!strlen($value)) {
+            return null;
         }
 
         return $value;

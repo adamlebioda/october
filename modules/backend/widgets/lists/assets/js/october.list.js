@@ -12,6 +12,16 @@
 
         this.options = options || {};
 
+        var scrollClassContainer = options.scrollClassContainer !== undefined
+            ? options.scrollClassContainer
+            : $el.parent()
+
+        $el.dragScroll({
+            scrollClassContainer: scrollClassContainer,
+            scrollSelector: 'thead',
+            dragSelector: 'thead'
+        })
+
         this.update()
     }
 
@@ -116,6 +126,12 @@
         $(el)
             .closest('[data-control="listwidget"]')
             .listWidget('toggleChecked', el)
+    }
+
+    $.oc.listGetChecked = function(el) {
+        return $(el)
+            .closest('[data-control="listwidget"]')
+            .listWidget('getChecked')
     }
 
     // LIST WIDGET DATA-API

@@ -254,21 +254,26 @@ class FormField
      */
     protected function evalConfig($config)
     {
+        if (is_null($config)) {
+            $config = [];
+        }
+
         /*
          * Standard config:property values
          */
         $applyConfigValues = [
-            'context',
+            'commentHtml',
             'placeholder',
-            'cssClass',
             'dependsOn',
+            'required',
+            'disabled',
+            'cssClass',
+            'stretch',
+            'context',
+            'hidden',
             'trigger',
             'preset',
             'path',
-            'required',
-            'disabled',
-            'hidden',
-            'stretch',
         ];
 
         foreach ($applyConfigValues as $value) {
@@ -328,11 +333,15 @@ class FormField
      * @param bool $isHtml Set to true if you use HTML formatting in the comment
      * Supported values are 'below' and 'above'
      */
-    public function comment($text, $position = 'below', $isHtml = false)
+    public function comment($text, $position = 'below', $isHtml = null)
     {
         $this->comment = $text;
         $this->commentPosition = $position;
-        $this->commentHtml = $isHtml;
+
+        if ($isHtml !== null) {
+            $this->commentHtml = $isHtml;
+        }
+
         return $this;
     }
 
@@ -540,15 +549,79 @@ class FormField
     }
 
     /**
+     * Returns a raw config item value.
+     * @param  string $value
+     * @param  string $default
+     * @return mixed
+     */
+    public function getConfig($value, $default = null)
+    {
+        return array_get($this->config, $value, $default);
+    }
+
+    /**
      * Returns this fields value from a supplied data set, which can be
      * an array or a model or another generic collection.
      * @param mixed $data
+     * @param mixed $default
      * @return mixed
      */
     public function getValueFromData($data, $default = null)
     {
         $fieldName = $this->valueFrom ?: $this->fieldName;
+        return $this->getFieldNameFromData($fieldName, $data, $default);
+    }
 
+    /**
+     * Returns the default value for this field, the supplied data is used
+     * to source data when defaultFrom is specified.
+     * @param mixed $data
+     * @return mixed
+     */
+    public function getDefaultFromData($data)
+    {
+        if ($this->defaultFrom) {
+            return $this->getFieldNameFromData($this->defaultFrom, $data);
+        }
+
+        if ($this->defaults !== '') {
+            return $this->defaults;
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns the final model and attribute name of a nested attribute.
+     * Eg: list($model, $attribute) = $this->resolveAttribute('person[phone]');
+     * @param  string $attribute.
+     * @return array
+     */
+    public function resolveModelAttribute($model, $attribute = null)
+    {
+        if ($attribute === null) {
+            $attribute = $this->valueFrom ?: $this->fieldName;
+        }
+
+        $parts = is_array($attribute) ? $attribute : HtmlHelper::nameToArray($attribute);
+        $last = array_pop($parts);
+
+        foreach ($parts as $part) {
+            $model = $model->{$part};
+        }
+
+        return [$model, $last];
+    }
+
+    /**
+     * Internal method to extract the value of a field name from a data set.
+     * @param string $fieldName
+     * @param mixed $data
+     * @param mixed $default
+     * @return mixed
+     */
+    protected function getFieldNameFromData($fieldName, $data, $default = null)
+    {
         /*
          * Array field name, eg: field[key][key2][key3]
          */
@@ -587,27 +660,5 @@ class FormField
         }
 
         return $result;
-    }
-
-    /**
-     * Returns the final model and attribute name of a nested attribute.
-     * Eg: list($model, $attribute) = $this->resolveAttribute('person[phone]');
-     * @param  string $attribute.
-     * @return array
-     */
-    public function resolveModelAttribute($model, $attribute = null)
-    {
-        if ($attribute === null) {
-            $attribute = $this->valueFrom ?: $this->fieldName;
-        }
-
-        $parts = is_array($attribute) ? $attribute : HtmlHelper::nameToArray($attribute);
-        $last = array_pop($parts);
-
-        foreach ($parts as $part) {
-            $model = $model->{$part};
-        }
-
-        return [$model, $last];
     }
 }

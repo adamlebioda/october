@@ -1,12 +1,12 @@
 /*
-=require ../vendor/bootstrap/js/transition.js
-=require ../vendor/bootstrap/js/tab.js
-=require toolbar.js
-*/
-/*
  * Tab control
  *
- * - Documentation: ../docs/tab.md
+ * Documentation: ../docs/tab.md
+ *
+ * Require:
+ *  - bootstrap/transition
+ *  - bootstrap/tab
+ *  - storm/toolbar
  */
 +function ($) { "use strict";
 
@@ -86,22 +86,31 @@
             tabIndex = $tabs.index(li),
             time = new Date().getTime(),
             targetId = this.tabId + '-tab-' + tabIndex + time,
-            $a = $('a', li)
+            $anchor = $('a', li)
 
-        $a.attr('data-target', '#'+targetId).attr('data-toggle', 'tab')
-        if (!$a.attr('title'))
-            $a.attr('title', $a.text())
+        $anchor
+            .data('target', '#'+targetId)
+            .attr('data-target', '#'+targetId)
+            .attr('data-toggle', 'tab')
 
-        var html = $a.html()
+        if (!$anchor.attr('title'))
+            $anchor.attr('title', $anchor.text())
 
-        $a.html('')
-        $a.append($('<span class="title"></span>').append($('<span></span>').html(html)))
+        var html = $anchor.html()
+
+        $anchor.html('')
+        $anchor
+            .append($('<span class="title"></span>')
+            .append($('<span></span>').html(html)))
 
         var pane = $('> .tab-pane', this.$pagesContainer).eq(tabIndex).attr('id', targetId)
-        $(li).append($('<span class="tab-close"><i>&times;</i></span>').click(function(){
-            $(this).trigger('close.oc.tab')
-            return false
-        }))
+
+        if (!$('span.tab-close', li).length) {
+            $(li).append($('<span class="tab-close"><i>&times;</i></span>').click(function(){
+                $(this).trigger('close.oc.tab')
+                return false
+            }))
+        }
 
         pane.data('tab', li)
 
@@ -193,6 +202,8 @@
         if (e.isDefaultPrevented())
             return
 
+        $.oc.foundation.controlUtils.disposeControls($pane.get(0))
+
         $pane.remove()
         $tab.remove()
 
@@ -202,7 +213,7 @@
         if ($('> li > a', this.$tabsContainer).length == 0)
             this.$el.trigger('afterAllClosed.oc.tab')
 
-        this.$el.trigger('closed.oc.tab', [$tab])
+        this.$el.trigger('closed.oc.tab', [$tab, $pane])
 
         $(window).trigger('resize')
         this.updateClasses()
@@ -252,6 +263,13 @@
             tab = $('[data-target="' + id + '"]', this.$tabsContainer)
 
         return tab
+    }
+
+    Tab.prototype.findPaneFromTab = function(tab) {
+        var id = $(tab).find('> a').data('target'),
+            pane = this.$pagesContainer.find(id)
+
+        return pane
     }
 
     Tab.prototype.goTo = function(identifier) {

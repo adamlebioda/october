@@ -136,7 +136,7 @@
         this.$el.on('click.tree-path', 'ul.tree-path, [data-control="sidebar-labels"]', this.proxy(this.onNavigate))
 
         this.$el.on('click.command', '[data-command]', this.proxy(this.onCommandClick))
-        
+
         // Touch devices use double-tap for the navigation and single tap for selecting.
         // Another option is checkboxes visible only on touch devices, but this approach
         // will require more significant changes in the code for the touch device support.
@@ -162,7 +162,7 @@
         this.$el.off('dblclick', this.proxy(this.onNavigate))
         this.$el.off('click.tree-path', this.proxy(this.onNavigate))
         this.$el.off('click.command', this.proxy(this.onCommandClick))
-        
+
         if (!Modernizr.touch)
             this.$el.off('click.item', this.proxy(this.onItemClick))
         else
@@ -248,16 +248,14 @@
             var items = this.$el.get(0).querySelectorAll('[data-type="media-item"].selected')
 
             // The class attribute is used only for selecting, it's safe to clear it
-            for (var i = 0, len = items.length; i < len; i++)
+            for (var i = 0, len = items.length; i < len; i++) {
                 items[i].setAttribute('class', '')
-        } 
-        else 
-            this.unselectRoot()
+            }
 
-        if (!expandSelection)
             node.setAttribute('class', 'selected')
+        }
         else {
-            if (node.getAttribute('class') == 'selected') 
+            if (node.getAttribute('class') == 'selected')
                 node.setAttribute('class', '')
             else
                 node.setAttribute('class', 'selected')
@@ -272,6 +270,24 @@
             // when the selection changes too quickly (with the keyboard arrows)
             this.selectTimer = setTimeout(this.proxy(this.updateSidebarPreview), 100) 
         }
+
+        // Disable delete and move buttons
+        if (node.hasAttribute('data-root') && !expandSelection) {
+            this.toggleMoveAndDelete(true)
+        }
+        else {
+            this.toggleMoveAndDelete(false)
+        }
+
+        // Always unselect root when selecting multiples
+        if (expandSelection) {
+            this.unselectRoot()
+        }
+    }
+
+    MediaManager.prototype.toggleMoveAndDelete = function(value) {
+        $('[data-command=delete]', this.$el).prop('disabled', value)
+        $('[data-command=move]', this.$el).prop('disabled', value)
     }
 
     MediaManager.prototype.unselectRoot = function() {
@@ -295,8 +311,9 @@
 
     MediaManager.prototype.selectFirstItem = function() {
         var firstItem = this.itemListElement.querySelector('[data-type="media-item"]:first-child')
-        if (firstItem)
+        if (firstItem) {
             this.selectItem(firstItem)
+        }
     }
 
     MediaManager.prototype.selectRelative = function(next, expandSelection) {
@@ -396,8 +413,8 @@
             }
         } 
         else if ($item.data('item-type') == 'file') {
-            // Trigger the Insert popup command if a file item 
-            // was double clicked.
+            // Trigger the Insert popup command if a file item
+            // was double clicked or Enter key was pressed.
             this.$el.trigger('popupcommand', ['insert'])
         }
     }
@@ -437,10 +454,12 @@
             previewContainer = previewPanel.querySelector('[data-control="media-preview-container"]'),
             template = ''
 
-        for (var i = 0, len = previewContainer.children.length; i < len; i++)
+        for (var i = 0, len = previewContainer.children.length; i < len; i++) {
             previewContainer.removeChild(previewContainer.children[i])
+        }
 
-        if (items.length == 1) {
+        // Single item selected
+        if (items.length == 1 && !items[0].hasAttribute('data-root')) {
             var item = items[0],
                 documentType = item.getAttribute('data-document-type')
 
@@ -464,11 +483,18 @@
             if (documentType == 'image')
                 this.loadSidebarThumbnail()
         }
+        // "Go up" is selected
+        else if (items.length == 1 && items[0].hasAttribute('data-root')) {
+            template = previewPanel.querySelector('[data-control="go-up"]').innerHTML
+            previewContainer.innerHTML = template
+        }
+        // No selection
         else if (items.length == 0) {
             template = previewPanel.querySelector('[data-control="no-selection-template"]').innerHTML
             previewContainer.innerHTML = template
         }
-        else  {
+        // Multiple selection
+        else {
             template = previewPanel.querySelector('[data-control="multi-selection-template"]').innerHTML
             previewContainer.innerHTML = template
         }
@@ -481,14 +507,14 @@
         var items = resetSidebar === undefined ? this.$el.get(0).querySelectorAll('[data-type="media-item"].selected') : [],
             previewPanel = this.sidebarPreviewElement
 
+        // No items are selected
         if (items.length == 0) {
-            // No items are selected
             this.sidebarPreviewElement.querySelector('[data-control="sidebar-labels"]').setAttribute('class', 'hide')
-        } 
-        else if (items.length == 1) {
+        }
+        // One item is selected - display the details
+        else if (items.length == 1 && !items[0].hasAttribute('data-root')) {
             this.sidebarPreviewElement.querySelector('[data-control="sidebar-labels"]').setAttribute('class', 'panel')
 
-            // One item is selected - display the details
             var item = items[0],
                 lastModified = item.getAttribute('data-last-modified')
 
@@ -507,11 +533,13 @@
                 var folderNode = previewPanel.querySelector('[data-label="folder"]')
                 folderNode.textContent = item.getAttribute('data-folder')
                 folderNode.setAttribute('data-path', item.getAttribute('data-folder'))
-            } else
+            }
+            else {
                 previewPanel.querySelector('[data-control="item-folder"]').setAttribute('class', 'hide')
+            }
         }
+        // Multiple items are selected or "Go up" is selected
         else {
-            // Multiple items are selected
             this.sidebarPreviewElement.querySelector('[data-control="sidebar-labels"]').setAttribute('class', 'hide')
         }
 
@@ -689,11 +717,23 @@
 
         var uploaderOptions = {
             clickable: this.$el.find('[data-control="upload"]').get(0),
-            method: 'POST',
-            url: window.location,
+            url: this.options.url,
             paramName: 'file_data',
+            headers: {},
             createImageThumbnails: false
             // fallback: implement method that would set a flag that the uploader is not supported by the browser
+        }
+
+        if (this.options.uniqueId) {
+            uploaderOptions.headers['X-OCTOBER-FILEUPLOAD'] = this.options.uniqueId
+        }
+
+        /*
+         * Add CSRF token to headers
+         */
+        var token = $('meta[name="csrf-token"]').attr('content')
+        if (token) {
+            uploaderOptions.headers['X-CSRF-TOKEN'] = token
         }
 
         this.dropzone = new Dropzone(this.$el.get(0), uploaderOptions)
@@ -702,6 +742,7 @@
         this.dropzone.on('queuecomplete', this.proxy(this.uploadQueueComplete))
         this.dropzone.on('sending', this.proxy(this.uploadSending))
         this.dropzone.on('error', this.proxy(this.uploadError))
+        this.dropzone.on('success', this.proxy(this.uploadSuccess))
     }
 
     MediaManager.prototype.destroyUploader = function() {
@@ -735,31 +776,25 @@
             messageTemplate = fileNumberLabel.getAttribute('data-message-template'),
             fileNumber = this.dropzone.getUploadingFiles().length + this.dropzone.getQueuedFiles().length
 
-        // Don't confuse users with displaying 100% 
+        // Don't confuse users with displaying 100%
         // until the operation finishes. We consider the operation
-        // finished when the Dropzone's 'compete' event triggers - 
+        // finished when the Dropzone's 'compete' event triggers -
         // when the response is received from the server.
-        if (uploadProgress >= 100)
+        if (uploadProgress >= 100) {
             uploadProgress = 99
+        }
 
         fileNumberLabel.innerHTML = messageTemplate.replace(':number', fileNumber).replace(':percents', Math.round(uploadProgress) + '%')
     }
 
     MediaManager.prototype.setUploadProgress = function(value) {
-        var progresBar = this.$el.get(0).querySelector('[data-control="upload-progress-bar"]')
-        
-        progresBar.setAttribute('style', 'width: ' + value + '%')
-        progresBar.setAttribute('class', 'progress-bar')
+        var progressBar = this.$el.get(0).querySelector('[data-control="upload-progress-bar"]')
+
+        progressBar.setAttribute('style', 'width: ' + value + '%')
+        progressBar.setAttribute('class', 'progress-bar')
     }
 
     MediaManager.prototype.uploadQueueComplete = function() {
-        var fileNumberLabel = this.$el.get(0).querySelector('[data-label="file-number-and-progress"]'),
-            completeTemplate = fileNumberLabel.getAttribute('data-complete-template'),
-            progresBar = this.$el.get(0).querySelector('[data-control="upload-progress-bar"]')
-
-        fileNumberLabel.innerHTML = completeTemplate;
-        progresBar.setAttribute('class', 'progress-bar progress-bar-success')
-
         this.$el.find('[data-command="cancel-uploading"]').addClass('hide')
         this.$el.find('[data-command="close-uploader"]').removeClass('hide')
 
@@ -768,7 +803,6 @@
 
     MediaManager.prototype.uploadSending = function(file, xhr, formData) {
         formData.append('path', this.$el.find('[data-type="current-folder"]').val())
-        formData.append('X_OCTOBER_FILEUPLOAD', this.options.uniqueId)
     }
 
     MediaManager.prototype.uploadCancelAll = function() {
@@ -776,13 +810,22 @@
         this.hideUploadUi()
     }
 
+    MediaManager.prototype.updateUploadBar = function(templateName, classNames) {
+        var fileNumberLabel = this.$el.get(0).querySelector('[data-label="file-number-and-progress"]'),
+            successTemplate = fileNumberLabel.getAttribute('data-' + templateName + '-template'),
+            progressBar = this.$el.get(0).querySelector('[data-control="upload-progress-bar"]')
+
+        fileNumberLabel.innerHTML = successTemplate;
+        progressBar.setAttribute('class', classNames)
+    }
+
+    MediaManager.prototype.uploadSuccess = function() {
+        this.updateUploadBar('success', 'progress-bar progress-bar-success');
+    }
+
     MediaManager.prototype.uploadError = function(file, message) {
-        swal({
-            title: 'Error uploading file',
-            text: message,
-            // type: 'error',
-            confirmButtonClass: 'btn-default'
-        })
+        this.updateUploadBar('error', 'progress-bar progress-bar-danger');
+        $.oc.alert('Error uploading file')
     }
 
     //
@@ -810,13 +853,8 @@
             })
     }
 
-    MediaManager.prototype.onImageCropped = function(imageUrl) {
-        var item = {
-            documentType: 'image',
-            publicUrl: imageUrl
-        }
-
-        this.$el.trigger('popupcommand', ['insert-cropped', item])
+    MediaManager.prototype.onImageCropped = function(result) {
+        this.$el.trigger('popupcommand', ['insert-cropped', result])
     }
 
     //
@@ -865,19 +903,11 @@
         var items = this.$el.get(0).querySelectorAll('[data-type="media-item"].selected')
 
         if (!items.length) {
-            swal({
-                title: this.options.deleteEmpty,
-                confirmButtonClass: 'btn-default'
-            })
-
+            $.oc.alert(this.options.deleteEmpty)
             return
         }
 
-        swal({
-            title: this.options.deleteConfirm,
-            confirmButtonClass: 'btn-default',
-            showCancelButton: true
-        }, this.proxy(this.deleteConfirmation))
+        $.oc.confirm(this.options.deleteConfirm, this.proxy(this.deleteConfirmation))
     }
 
     MediaManager.prototype.deleteConfirmation = function(confirmed) {
@@ -899,7 +929,7 @@
             }
 
         $.oc.stripeLoadIndicator.show()
-        this.$form.request(this.options.alias+'::onDelete', {
+        this.$form.request(this.options.alias+'::onDeleteItem', {
             data: data
         }).always(function() {
             $.oc.stripeLoadIndicator.hide()
@@ -926,7 +956,7 @@
         var data = {
                 name: $(ev.target).find('input[name=name]').val(),
                 path: this.$el.find('[data-type="current-folder"]').val()
-            } 
+            }
 
         $.oc.stripeLoadIndicator.show()
         this.$form.request(this.options.alias+'::onCreateFolder', {
@@ -949,11 +979,7 @@
         var items = this.$el.get(0).querySelectorAll('[data-type="media-item"].selected')
 
         if (!items.length) {
-            swal({
-                title: this.options.moveEmpty,
-                confirmButtonClass: 'btn-default'
-            })
-
+            $.oc.alert(this.options.moveEmpty)
             return
         }
 
@@ -1037,13 +1063,13 @@
         var command = $(ev.currentTarget).data('command')
 
         switch (command) {
-            case 'refresh' : 
+            case 'refresh':
                 this.refresh()
             break;
-            case 'change-view' :
+            case 'change-view':
                 this.changeView($(ev.currentTarget).data('view'))
             break;
-            case 'cancel-uploading' :
+            case 'cancel-uploading':
                 this.uploadCancelAll()
             break;
             case 'close-uploader':
@@ -1078,8 +1104,8 @@
     }
 
     MediaManager.prototype.onItemClick = function(ev) {
-        // Don't select "Go up" folders and don't select items when the rename icon is clicked
-        if (ev.currentTarget.hasAttribute('data-root') || (ev.target.tagName == 'I' && ev.target.hasAttribute('data-rename-control')))
+        // Don't select items when the rename icon is clicked
+        if (ev.target.tagName == 'I' && ev.target.hasAttribute('data-rename-control'))
             return
 
         this.selectItem(ev.currentTarget, ev.shiftKey)
@@ -1238,10 +1264,11 @@
     // ============================
 
     MediaManager.DEFAULTS = {
+        url: window.location,
         alias: '',
         uniqueId: null,
         deleteEmpty: 'Please select files to delete.',
-        deleteConfirm: 'Do you really want to delete the selected file(s)?',
+        deleteConfirm: 'Delete the selected file(s)?',
         moveEmpty: 'Please select files to move.',
         selectSingleImage: 'Please select a single image.',
         selectionNotImage: 'The selected item is not an image.',

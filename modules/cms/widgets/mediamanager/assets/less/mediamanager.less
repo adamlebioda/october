@@ -1,6 +1,6 @@
 @import "../../../../../backend/assets/less/core/boot.less";
 
-@color-media-list-hover-bg: #4da7e8;
+@color-media-list-hover-bg: mix(white, @brand-accent, 13%);
 
 .media-selected-tiles() {
     .icon-container {
@@ -152,7 +152,7 @@ div[data-control="media-manager"] {
                     display: none;
 
                     &:hover {
-                        color: @color-link;
+                        color: @link-color;
                         text-decoration: none;
                     }
                 }
@@ -281,7 +281,7 @@ div[data-control="media-manager"] {
                 }
 
                 p {
-                    font-family: @font-family-sans-serif;
+                    font-family: @font-family-base;
                 }
             }
 
@@ -323,7 +323,7 @@ div[data-control="media-manager"] {
             }
         }
 
-        i.icon-chain-broken, i.icon-crop, i.icon-asterisk {
+        i.icon-chain-broken, i.icon-crop, i.icon-asterisk, i.icon-level-up {
             color: #bdc3c7;
             font-size: 55px;
         }
@@ -335,6 +335,10 @@ div[data-control="media-manager"] {
         p {
             .icon-message();
             margin-top: 25px;
+        }
+
+        img {
+            max-width: 100%;
         }
     }
 
@@ -357,6 +361,12 @@ div[data-control="media-manager"] {
             border: none !important;
             background: transparent !important;
             cursor: default !important;
+        }
+
+        table.table.data {
+            tbody tr:not(.no-data):active td {
+                background: @color-list-hover-bg !important;
+            }
         }
     }
 
@@ -465,7 +475,7 @@ div[data-control="media-manager"] {
 
                     &:hover {
                         text-decoration: none;
-                        color: @color-link;
+                        color: @link-color;
                     }
                 }
             }

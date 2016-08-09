@@ -1,7 +1,7 @@
 <?php namespace Backend\Widgets;
 
 use Db;
-use HTML as Html;
+use Html;
 use App;
 use Lang;
 use Input;
@@ -11,6 +11,7 @@ use DbDongle;
 use Carbon\Carbon;
 use October\Rain\Html\Helper as HtmlHelper;
 use October\Rain\Router\Helper as RouterHelper;
+use System\Helpers\DateTime as DateTimeHelper;
 use Backend\Classes\ListColumn;
 use Backend\Classes\WidgetBase;
 use ApplicationException;
@@ -53,7 +54,7 @@ class Lists extends WidgetBase
     /**
      * @var string Message to display when there are no records in the list.
      */
-    public $noRecordsMessage = 'No records found';
+    public $noRecordsMessage = 'backend::lang.list.no_records';
 
     /**
      * @var int Maximum rows to display for each page.
@@ -136,6 +137,19 @@ class Lists extends WidgetBase
     protected $searchTerm;
 
     /**
+     * @var string If searching the records, specifies a policy to use.
+     * - all: result must contain all words
+     * - any: result can contain any word
+     * - exact: result must contain the exact phrase
+     */
+    protected $searchMode;
+
+    /**
+     * @var string Use a custom scope method for performing searches.
+     */
+    protected $searchScope;
+
+    /**
      * @var array Collection of functions to apply to each list query.
      */
     protected $filterCallbacks = [];
@@ -197,7 +211,7 @@ class Lists extends WidgetBase
     /**
      * {@inheritDoc}
      */
-    public function loadAssets()
+    protected function loadAssets()
     {
         $this->addJs('js/october.list.js', 'core');
     }
@@ -338,7 +352,7 @@ class Lists extends WidgetBase
                 else {
                     $columnName = isset($column->sqlSelect)
                         ? DbDongle::raw($this->parseTableName($column->sqlSelect, $primaryTable))
-                        : Db::getTablePrefix() . $primaryTable . '.' . $column->columnName;
+                        : DbDongle::cast(Db::getTablePrefix() . $primaryTable . '.' . $column->columnName, 'TEXT');
 
                     $primarySearchable[] = $columnName;
                 }
@@ -377,7 +391,7 @@ class Lists extends WidgetBase
              * Search primary columns
              */
             if (count($primarySearchable) > 0) {
-                $innerQuery->orSearchWhere($this->searchTerm, $primarySearchable);
+                $this->applySearchToQuery($innerQuery, $primarySearchable, 'or');
             }
 
             /*
@@ -393,7 +407,7 @@ class Lists extends WidgetBase
 
                     if (count($columnsToSearch) > 0) {
                         $innerQuery->orWhereHas($join, function ($_query) use ($columnsToSearch) {
-                            $_query->searchWhere($this->searchTerm, $columnsToSearch);
+                            $this->applySearchToQuery($_query, $columnsToSearch);
                         });
                     }
                 }
@@ -409,21 +423,27 @@ class Lists extends WidgetBase
                 continue;
             }
 
-            $alias = Db::getQueryGrammar()->wrap($column->columnName);
+            $alias = $query->getQuery()->getGrammar()->wrap($column->columnName);
 
             /*
              * Relation column
              */
             if (isset($column->relation)) {
-                $table =  $this->model->makeRelation($column->relation)->getTable();
+
+                // @todo Find a way...
                 $relationType = $this->model->getRelationType($column->relation);
+                if ($relationType == 'morphTo') {
+                    throw new ApplicationException('The relationship morphTo is not supported for list columns.');
+                }
+
+                $table =  $this->model->makeRelation($column->relation)->getTable();
                 $sqlSelect = $this->parseTableName($column->sqlSelect, $table);
 
                 /*
                  * Manipulate a count query for the sub query
                  */
                 $relationObj = $this->model->{$column->relation}();
-                $countQuery = $relationObj->getRelationCountQuery($relationObj->getRelated()->newQuery(), $query);
+                $countQuery = $relationObj->getRelationCountQuery($relationObj->getRelated()->newQueryWithoutScopes(), $query);
 
                 $joinSql = $this->isColumnRelated($column, true)
                     ? DbDongle::raw("group_concat(" . $sqlSelect . " separator ', ')")
@@ -447,7 +467,9 @@ class Lists extends WidgetBase
          */
         if ($sortColumn = $this->getSortColumn()) {
             if (($column = array_get($this->allColumns, $sortColumn)) && $column->valueFrom) {
-                $sortColumn = $column->valueFrom;
+                $sortColumn = $this->isColumnPivot($column)
+                    ? 'pivot_' . $column->valueFrom
+                    : $column->valueFrom;
             }
 
             $query->orderBy($sortColumn, $this->sortDirection);
@@ -484,15 +506,16 @@ class Lists extends WidgetBase
      */
     protected function getRecords()
     {
+        $model = $this->prepareModel();
+
         if ($this->showTree) {
-            $records = $this->model->getAllRoot();
+            $records = $model->getNested();
+        }
+        elseif ($this->showPagination) {
+            $records = $model->paginate($this->recordsPerPage, $this->currentPageNumber);
         }
         else {
-            $model = $this->prepareModel();
-            $records = ($this->showPagination)
-                ? $model->paginate($this->recordsPerPage, $this->currentPageNumber)
-                : $model->get();
-
+            $records = $model->get();
         }
 
         return $this->records = $records;
@@ -514,6 +537,8 @@ class Lists extends WidgetBase
         }
 
         $data = $record->toArray();
+        $data += [$record->getKeyName() => $record->getKey()];
+
         $columns = array_keys($data);
 
         $url = RouterHelper::parseValues($data, $columns, $this->recordUrl);
@@ -608,10 +633,8 @@ class Lists extends WidgetBase
     protected function defineListColumns()
     {
         if (!isset($this->columns) || !is_array($this->columns) || !count($this->columns)) {
-            throw new ApplicationException(Lang::get(
-                'backend::lang.list.missing_columns',
-                ['class'=>get_class($this->controller)]
-            ));
+            $class = get_class($this->model instanceof Model ? $this->model : $this->controller);
+            throw new ApplicationException(Lang::get('backend::lang.list.missing_columns', compact('class')));
         }
 
         $this->addColumns($this->columns);
@@ -679,7 +702,13 @@ class Lists extends WidgetBase
             $label = studly_case($name);
         }
 
-        if (strpos($name, '[') !== false && strpos($name, ']') !== false) {
+        if (starts_with($name, 'pivot[') && strpos($name, ']') !== false) {
+            $_name = HtmlHelper::nameToArray($name);
+            $config['relation'] = array_shift($_name);
+            $config['valueFrom'] = array_shift($_name);
+            $config['searchable'] = false;
+        }
+        elseif (strpos($name, '[') !== false && strpos($name, ']') !== false) {
             $config['valueFrom'] = $name;
             $config['sortable'] = false;
             $config['searchable'] = false;
@@ -750,8 +779,8 @@ class Lists extends WidgetBase
             elseif ($this->isColumnRelated($column, true)) {
                 $value = implode(', ', $record->{$columnName}->lists($column->valueFrom));
             }
-            elseif ($this->isColumnRelated($column)) {
-                $value = $record->{$columnName}->{$column->valueFrom};
+            elseif ($this->isColumnRelated($column) || $this->isColumnPivot($column)) {
+                $value = $record->{$columnName} ? $record->{$columnName}->{$column->valueFrom} : null;
             }
             else {
                 $value = null;
@@ -788,7 +817,7 @@ class Lists extends WidgetBase
         /*
          * Apply default value.
          */
-        if (empty($value)) {
+        if ($value === '' || $value === null) {
             $value = $column->defaults;
         }
 
@@ -861,8 +890,16 @@ class Lists extends WidgetBase
      */
     protected function evalSwitchTypeValue($record, $column, $value)
     {
-        // return ($value) ? '<i class="icon-check"></i>' : '<i class="icon-times"></i>';
-        return ($value) ? 'Yes' : 'No';
+        $contents = '';
+
+        if ($value) {
+            $contents = Lang::get('backend::lang.list.column_switch_true');
+        }
+        else {
+            $contents = Lang::get('backend::lang.list.column_switch_false');
+        }
+
+        return $contents;
     }
 
     /**
@@ -874,13 +911,20 @@ class Lists extends WidgetBase
             return null;
         }
 
-        $value = $this->validateDateTimeValue($value, $column);
+        $dateTime = $this->validateDateTimeValue($value, $column);
 
         if ($column->format !== null) {
-            return $value->format($column->format);
+            $value = $dateTime->format($column->format);
+        }
+        else {
+            $value = $dateTime->toDayDateTimeString();
         }
 
-        return $value->toDayDateTimeString();
+        return Backend::dateTime($dateTime, [
+            'defaultValue' => $value,
+            'format' => $column->format,
+            'formatAlias' => 'dateTimeLongMin'
+        ]);
     }
 
     /**
@@ -892,13 +936,17 @@ class Lists extends WidgetBase
             return null;
         }
 
-        $value = $this->validateDateTimeValue($value, $column);
+        $dateTime = $this->validateDateTimeValue($value, $column);
 
-        if ($column->format === null) {
-            $column->format = 'g:i A';
-        }
+        $format = $column->format !== null ? $column->format : 'g:i A';
 
-        return $value->format($column->format);
+        $value = $dateTime->format($format);
+
+        return Backend::dateTime($dateTime, [
+            'defaultValue' => $value,
+            'format' => $column->format,
+            'formatAlias' => 'time'
+        ]);
     }
 
     /**
@@ -910,13 +958,20 @@ class Lists extends WidgetBase
             return null;
         }
 
-        $value = $this->validateDateTimeValue($value, $column);
+        $dateTime = $this->validateDateTimeValue($value, $column);
 
         if ($column->format !== null) {
-            return $value->format($column->format);
+            $value = $dateTime->format($column->format);
+        }
+        else {
+            $value = $dateTime->toFormattedDateString();
         }
 
-        return $value->toFormattedDateString();
+        return Backend::dateTime($dateTime, [
+            'defaultValue' => $value,
+            'format' => $column->format,
+            'formatAlias' => 'dateLongMin'
+        ]);
     }
 
     /**
@@ -928,9 +983,33 @@ class Lists extends WidgetBase
             return null;
         }
 
-        $value = $this->validateDateTimeValue($value, $column);
+        $dateTime = $this->validateDateTimeValue($value, $column);
 
-        return $value->diffForHumans();
+        $value = DateTimeHelper::timeSince($dateTime);
+
+        return Backend::dateTime($dateTime, [
+            'defaultValue' => $value,
+            'timeSince' => true
+        ]);
+    }
+
+    /**
+     * Process as time as current tense (Today at 0:00)
+     */
+    protected function evalTimetenseTypeValue($record, $column, $value)
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $dateTime = $this->validateDateTimeValue($value, $column);
+
+        $value = DateTimeHelper::timeTense($dateTime);
+
+        return Backend::dateTime($dateTime, [
+            'defaultValue' => $value,
+            'timeTense' => true
+        ]);
     }
 
     /**
@@ -938,9 +1017,7 @@ class Lists extends WidgetBase
      */
     protected function validateDateTimeValue($value, $column)
     {
-        if ($value instanceof DateTime) {
-            $value = Carbon::instance($value);
-        }
+        $value = DateTimeHelper::makeCarbon($value, false);
 
         if (!$value instanceof Carbon) {
             throw new ApplicationException(Lang::get(
@@ -980,6 +1057,21 @@ class Lists extends WidgetBase
     }
 
     /**
+     * Applies a search options to the list search.
+     * @param array $options
+     */
+    public function setSearchOptions($options = [])
+    {
+        extract(array_merge([
+            'mode' => null,
+            'scope' => null
+        ], $options));
+
+        $this->searchMode = $mode;
+        $this->searchScope = $scope;
+    }
+
+    /**
      * Returns a collection of columns which can be searched.
      * @return array
      */
@@ -997,6 +1089,25 @@ class Lists extends WidgetBase
         }
 
         return $searchable;
+    }
+
+    /**
+     * Applies the search constraint to a query.
+     */
+    protected function applySearchToQuery($query, $columns, $boolean = 'and')
+    {
+        $term = $this->searchTerm;
+
+        if ($scopeMethod = $this->searchScope) {
+            $searchMethod = $boolean == 'and' ? 'where' : 'orWhere';
+            $query->$searchMethod(function($q) use ($term, $scopeMethod) {
+                $q->$scopeMethod($term);
+            });
+        }
+        else {
+            $searchMethod = $boolean == 'and' ? 'searchWhere' : 'orSearchWhere';
+            $query->$searchMethod($term, $columns, $this->searchMode);
+        }
     }
 
     //
@@ -1136,11 +1247,12 @@ class Lists extends WidgetBase
     {
         if (($visibleColumns = post('visible_columns')) && is_array($visibleColumns)) {
             $this->columnOverride = array_keys($visibleColumns);
-            $this->putSession('visible', array_keys($visibleColumns));
+            $this->putSession('visible', $this->columnOverride);
         }
 
+        $this->recordsPerPage = post('records_per_page', $this->recordsPerPage);
         $this->putSession('order', post('column_order'));
-        $this->putSession('per_page', post('records_per_page', $this->recordsPerPage));
+        $this->putSession('per_page', $this->recordsPerPage);
         return $this->onRefresh();
     }
 
@@ -1236,7 +1348,7 @@ class Lists extends WidgetBase
      */
     protected function isColumnRelated($column, $multi = false)
     {
-        if (!isset($column->relation)) {
+        if (!isset($column->relation) || $this->isColumnPivot($column)) {
             return false;
         }
 
@@ -1262,5 +1374,19 @@ class Lists extends WidgetBase
             'attachMany',
             'hasManyThrough'
         ]);
+    }
+
+    /**
+     * Checks if a column refers to a pivot model specifically.
+     * @param  ListColumn  $column List column object
+     * @return boolean
+     */
+    protected function isColumnPivot($column)
+    {
+        if (!isset($column->relation) || $column->relation != 'pivot') {
+            return false;
+        }
+
+        return true;
     }
 }
